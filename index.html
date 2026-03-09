@@ -174,55 +174,63 @@ h1 .it{font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;}
 
 /* hero right */
 .hero-right{
-  background:var(--xlight);
+  background:var(--black);
   display:flex;align-items:center;justify-content:center;
-  padding:52px;position:relative;overflow:hidden;
+  padding:72px 52px;position:relative;overflow:hidden;
   width:100%;border-top:var(--rule);z-index:2;
 }
 .hero-right::before{
   content:'';position:absolute;inset:0;
-  background-image:linear-gradient(rgba(12,12,12,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(12,12,12,.04) 1px,transparent 1px);
+  background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);
   background-size:32px 32px;
 }
 
 .doc-mock{
-  width:100%;max-width:560px;border:var(--rule);background:var(--white);
-  box-shadow:8px 8px 0 var(--black);position:relative;z-index:2;
+  width:100%;max-width:720px;border:var(--rule);background:var(--white);
+  box-shadow:12px 12px 0 var(--red);position:relative;z-index:2;
   opacity:0;animation:risein 1s ease .65s forwards;
 }
-.doc-mock::before{content:'';position:absolute;top:12px;left:10px;right:-10px;bottom:-12px;border:var(--rule);background:var(--light);z-index:-1;}
-.doc-mock::after{content:'';position:absolute;top:22px;left:18px;right:-18px;bottom:-22px;border:var(--rule);background:var(--xlight);z-index:-2;}
+.doc-mock::before{content:'';position:absolute;top:14px;left:12px;right:-12px;bottom:-14px;border:var(--rule);background:rgba(255,255,255,.06);z-index:-1;}
+.doc-mock::after{content:'';position:absolute;top:26px;left:22px;right:-22px;bottom:-26px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02);z-index:-2;}
 
-.dm-top{background:var(--black);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;}
-.dm-title{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.55);}
-.dm-tag{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:3px 10px;background:var(--red);color:var(--white);}
+.dm-top{background:var(--red);padding:18px 26px;display:flex;align-items:center;justify-content:space-between;}
+.dm-title{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.85);}
+.dm-tag{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:5px 14px;background:var(--white);color:var(--red);}
 
-.dm-body{padding:22px;}
-.dm-parties{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;}
-.dm-p{border:var(--rule);padding:11px 13px;}
-.dm-pl{font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--grey);margin-bottom:3px;}
-.dm-pn{font-size:13px;font-weight:800;color:var(--black);}
-.dm-pr{font-size:11px;font-weight:500;color:var(--grey);}
+.dm-body{padding:30px;}
+.dm-parties{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;}
+.dm-p{border:var(--rule);padding:16px 18px;}
+.dm-pl{font-size:10px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--grey);margin-bottom:5px;}
+.dm-pn{font-size:16px;font-weight:800;color:var(--black);}
+.dm-pr{font-size:13px;font-weight:500;color:var(--grey);}
 
-.dm-lines{margin-bottom:16px;}
-.dl{height:7px;background:var(--light);margin-bottom:6px;}
-.dl.f{width:100%;}.dl.m{width:78%;}.dl.s{width:60%;}.dl.xs{width:38%;}
+.dm-clauses{margin-bottom:22px;border:var(--rule);}
+.dm-clause{padding:12px 16px;border-bottom:1px solid #EBEBEB;display:grid;grid-template-columns:36px 1fr;gap:10px;align-items:baseline;}
+.dm-clause:last-child{border-bottom:none;}
+.dm-clause.flagged{background:#FFF5F5;}
+.dm-cnum{font-size:10px;font-weight:800;color:var(--grey);letter-spacing:.05em;}
+.dm-clause.flagged .dm-cnum{color:var(--red);}
+.dm-ctext{font-size:12.5px;font-weight:500;color:var(--off);line-height:1.55;}
+.dm-ctext strong{font-weight:800;color:var(--black);}
+.dm-clause.flagged .dm-ctext strong{color:var(--red);}
+.dm-cbadge{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;background:var(--red);color:var(--white);margin-left:7px;vertical-align:middle;}
 
-.dm-fair{display:inline-flex;align-items:center;gap:8px;border:var(--rule);padding:7px 14px;margin-bottom:14px;font-size:11px;font-weight:800;}
-.dm-fbar{width:80px;height:4px;background:var(--light);}
+.dm-fair{display:inline-flex;align-items:center;gap:12px;border:var(--rule);padding:10px 18px;margin-bottom:18px;font-size:13px;font-weight:800;}
+.dm-fbar{width:110px;height:6px;background:var(--light);}
 .dm-ffill{height:100%;width:75%;background:var(--red);}
 
-.dm-ai{border-left:3px solid var(--red);background:#FFF5F5;padding:11px 14px;display:flex;gap:9px;margin-bottom:18px;}
-.dm-ai-dot{width:6px;height:6px;background:var(--red);border-radius:50%;margin-top:3px;flex-shrink:0;animation:pip 1.4s ease infinite;}
-.dm-ai-t{font-size:11.5px;font-weight:500;color:var(--off);line-height:1.55;}
+.dm-ai{border-left:4px solid var(--red);background:#FFF5F5;padding:16px 18px;display:flex;gap:12px;margin-bottom:24px;}
+.dm-ai-dot{width:8px;height:8px;background:var(--red);border-radius:50%;margin-top:4px;flex-shrink:0;animation:pip 1.4s ease infinite;}
+.dm-ai-t{font-size:14px;font-weight:500;color:var(--off);line-height:1.6;}
 .dm-ai-t b{color:var(--red);font-weight:700;}
 
-.dm-foot{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--light);border-top:var(--rule);margin:0 -22px -22px;}
-.dm-score{display:flex;align-items:center;gap:8px;}
-.dm-sbar{width:60px;height:3px;background:#D8D8D8;}
+.dm-foot{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:var(--light);border-top:var(--rule);margin:0 -30px -30px;}
+.dm-score{display:flex;align-items:center;gap:10px;}
+.dm-sbar{width:80px;height:4px;background:#D8D8D8;}
 .dm-sf{height:100%;width:90%;background:var(--black);}
-.dm-sl{font-size:11px;font-weight:800;}
-.dm-send{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:8px 16px;background:var(--black);color:var(--white);border:none;cursor:none;}
+.dm-sl{font-size:13px;font-weight:800;}
+.dm-send{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:12px 22px;background:var(--black);color:var(--white);border:none;cursor:none;transition:background .18s;}
+.dm-send:hover{background:var(--red);}
 
 /* ━━━ TRUST ━━━ */
 .trust{border-bottom:var(--rule);}
@@ -362,7 +370,7 @@ footer{background:var(--black);padding:48px 52px;display:flex;align-items:center
   nav{padding:0 24px;}
   .n-links{display:none;}
   .hero-left{padding:56px 24px 52px;}
-  .hero-right{padding:40px 24px;}
+  .hero-right{padding:48px 24px;}
   .how,.features,.proof,.cta{padding:80px 24px;}
   .how-head{grid-template-columns:1fr;gap:20px;}
   .steps-grid{grid-template-columns:1fr;}
@@ -448,9 +456,23 @@ footer{background:var(--black);padding:48px 52px;display:flex;align-items:center
           <div class="dm-p"><div class="dm-pl">Client</div><div class="dm-pn">Vertex Studio</div><div class="dm-pr">Pty Ltd · Melbourne</div></div>
           <div class="dm-p"><div class="dm-pl">Contractor</div><div class="dm-pn">Sarah Chen</div><div class="dm-pr">Freelance Designer</div></div>
         </div>
-        <div class="dm-lines">
-          <div class="dl f"></div><div class="dl m"></div><div class="dl f"></div>
-          <div class="dl s"></div><div class="dl f"></div><div class="dl m"></div><div class="dl xs"></div>
+        <div class="dm-clauses">
+          <div class="dm-clause">
+            <span class="dm-cnum">1.1</span>
+            <span class="dm-ctext"><strong>Services.</strong> The Contractor shall provide UI/UX design services as agreed in writing. Additional scope requires written approval from both parties.</span>
+          </div>
+          <div class="dm-clause">
+            <span class="dm-cnum">2.1</span>
+            <span class="dm-ctext"><strong>Payment.</strong> The Client shall pay $8,500 AUD within 14 days of invoice. Late payments attract interest at 1.5% per month on outstanding amounts.</span>
+          </div>
+          <div class="dm-clause flagged">
+            <span class="dm-cnum">3.2</span>
+            <span class="dm-ctext"><strong>IP Ownership.<span class="dm-cbadge">Risk</span></strong> All work product, including drafts, becomes sole property of the Client upon delivery — regardless of payment status.</span>
+          </div>
+          <div class="dm-clause">
+            <span class="dm-cnum">4.1</span>
+            <span class="dm-ctext"><strong>Termination.</strong> Either party may terminate with 14 days written notice. Contractor is entitled to payment for all work completed to the termination date.</span>
+          </div>
         </div>
         <div class="dm-fair">
           <span>Fairness</span>
