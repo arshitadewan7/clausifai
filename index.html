@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>clausifai. — Contract in minutes. Protected forever.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@300;400;500;600;700;800;900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+
+:root{
+  --red:   #D0000A;
+  --red2:  #A80008;
+  --black: #0C0C0C;
+  --off:   #1C1C1C;
+  --grey:  #656565;
+  --light: #F0F0F0;
+  --xlight:#F8F8F8;
+  --white: #FFFFFF;
+  --rule:  1.5px solid #0C0C0C;
+}
+
+body{
+  background:var(--white);
+  color:var(--black);
+  font-family:'Darker Grotesque',sans-serif;
+  font-weight:500;
+  overflow-x:hidden;
+  cursor:none;
+}
+
+/* ━━━ CURSOR ━━━ */
+#dot{position:fixed;width:9px;height:9px;background:var(--red);border-radius:50%;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);transition:width .15s,height .15s,border-radius .2s,background .15s;}
+#ring{position:fixed;width:34px;height:34px;border:1.5px solid var(--black);border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:width .28s,height .28s,border-color .2s,border-radius .2s;}
+
+/* ━━━ NAV ━━━ */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:500;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 52px;height:62px;
+  background:var(--white);
+  border-bottom:var(--rule);
+}
+.n-logo{font-size:21px;font-weight:900;letter-spacing:-.02em;color:var(--black);text-decoration:none;}
+.n-logo em{font-style:normal;color:var(--red);}
+.n-links{display:flex;gap:36px;list-style:none;}
+.n-links a{font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--grey);text-decoration:none;transition:color .2s;cursor:none;}
+.n-links a:hover{color:var(--black);}
+.n-cta{
+  font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  padding:9px 22px;background:var(--red);color:var(--white);
+  border:var(--rule);cursor:none;text-decoration:none;
+  transition:background .18s,transform .15s;
+  box-shadow:3px 3px 0 var(--black);
+}
+.n-cta:hover{background:var(--red2);transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--black);}
+
+/* ━━━ HERO ━━━ */
+.hero{
+  padding-top:62px;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  min-height:100vh;
+  border-bottom:var(--rule);
+}
+
+.hero-left{
+  padding:72px 52px 64px;
+  border-right:var(--rule);
+  display:flex;flex-direction:column;justify-content:center;
+  position:relative;overflow:hidden;
+}
+.hero-left::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:var(--red);}
+
+.h-eyebrow{
+  display:inline-flex;align-items:center;gap:9px;
+  font-size:11px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;
+  border:var(--rule);padding:6px 14px;margin-bottom:36px;width:fit-content;
+  opacity:0;animation:risein .6s ease .1s forwards;
+}
+.h-pip{width:7px;height:7px;background:var(--red);border-radius:50%;animation:pip 1.4s ease infinite;}
+@keyframes pip{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.7);}}
+
+h1{
+  font-size:clamp(60px,7.2vw,104px);
+  font-weight:900;line-height:.93;letter-spacing:-.03em;
+  color:var(--black);margin-bottom:30px;
+  opacity:0;animation:risein .85s ease .2s forwards;
+}
+h1 .r{color:var(--red);}
+h1 .it{font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;}
+
+.h-desc{
+  font-size:17px;font-weight:400;line-height:1.72;
+  color:var(--grey);max-width:460px;margin-bottom:44px;
+  opacity:0;animation:risein .85s ease .38s forwards;
+}
+.h-desc b{color:var(--black);font-weight:700;}
+
+.wl-box{
+  border:var(--rule);box-shadow:5px 5px 0 var(--black);
+  padding:24px;background:var(--white);max-width:460px;
+  opacity:0;animation:risein .85s ease .54s forwards;
+}
+.wl-lbl{font-size:10px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--grey);margin-bottom:12px;}
+.wl-row{display:flex;}
+.wl-in{
+  flex:1;border:var(--rule);border-right:none;
+  padding:13px 16px;font-size:15px;font-weight:500;
+  font-family:'Darker Grotesque',sans-serif;color:var(--black);
+  outline:none;background:var(--white);transition:border-color .2s;
+}
+.wl-in:focus{border-color:var(--red);}
+.wl-in::placeholder{color:#ADADAD;}
+.wl-go{
+  background:var(--black);border:var(--rule);
+  padding:13px 24px;font-size:12px;font-weight:800;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--white);cursor:none;
+  font-family:'Darker Grotesque',sans-serif;transition:background .18s;white-space:nowrap;
+}
+.wl-go:hover{background:var(--red);}
+.wl-note{font-size:12px;font-weight:600;color:var(--grey);margin-top:10px;}
+.wl-note b{color:var(--black);}
+.wl-ok{display:none;align-items:center;gap:12px;padding:14px 18px;background:var(--black);color:var(--white);font-size:15px;font-weight:700;}
+.wl-ok.on{display:flex;}
+.wl-tick{width:28px;height:28px;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+
+.h-stats{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  border-top:var(--rule);margin-top:44px;
+  opacity:0;animation:risein .85s ease .72s forwards;
+}
+.hs{padding:22px 0 0;}
+.hs+.hs{border-left:var(--rule);padding-left:24px;}
+.hs-n{font-size:44px;font-weight:900;line-height:1;letter-spacing:-.03em;}
+.hs-n em{font-style:normal;color:var(--red);}
+.hs-l{font-size:12px;font-weight:600;color:var(--grey);margin-top:3px;}
+
+/* hero right */
+.hero-right{
+  background:var(--xlight);
+  display:flex;align-items:center;justify-content:center;
+  padding:52px;position:relative;overflow:hidden;
+}
+.hero-right::before{
+  content:'';position:absolute;inset:0;
+  background-image:linear-gradient(rgba(12,12,12,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(12,12,12,.04) 1px,transparent 1px);
+  background-size:32px 32px;
+}
+
+.doc-mock{
+  width:100%;max-width:400px;border:var(--rule);background:var(--white);
+  box-shadow:8px 8px 0 var(--black);position:relative;z-index:2;
+  opacity:0;animation:risein 1s ease .65s forwards;
+}
+.doc-mock::before{content:'';position:absolute;top:12px;left:10px;right:-10px;bottom:-12px;border:var(--rule);background:var(--light);z-index:-1;}
+.doc-mock::after{content:'';position:absolute;top:22px;left:18px;right:-18px;bottom:-22px;border:var(--rule);background:var(--xlight);z-index:-2;}
+
+.dm-top{background:var(--black);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;}
+.dm-title{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.55);}
+.dm-tag{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:3px 10px;background:var(--red);color:var(--white);}
+
+.dm-body{padding:22px;}
+.dm-parties{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;}
+.dm-p{border:var(--rule);padding:11px 13px;}
+.dm-pl{font-size:9px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--grey);margin-bottom:3px;}
+.dm-pn{font-size:13px;font-weight:800;color:var(--black);}
+.dm-pr{font-size:11px;font-weight:500;color:var(--grey);}
+
+.dm-lines{margin-bottom:16px;}
+.dl{height:7px;background:var(--light);margin-bottom:6px;}
+.dl.f{width:100%;}.dl.m{width:78%;}.dl.s{width:60%;}.dl.xs{width:38%;}
+
+.dm-fair{display:inline-flex;align-items:center;gap:8px;border:var(--rule);padding:7px 14px;margin-bottom:14px;font-size:11px;font-weight:800;}
+.dm-fbar{width:80px;height:4px;background:var(--light);}
+.dm-ffill{height:100%;width:75%;background:var(--red);}
+
+.dm-ai{border-left:3px solid var(--red);background:#FFF5F5;padding:11px 14px;display:flex;gap:9px;margin-bottom:18px;}
+.dm-ai-dot{width:6px;height:6px;background:var(--red);border-radius:50%;margin-top:3px;flex-shrink:0;animation:pip 1.4s ease infinite;}
+.dm-ai-t{font-size:11.5px;font-weight:500;color:var(--off);line-height:1.55;}
+.dm-ai-t b{color:var(--red);font-weight:700;}
+
+.dm-foot{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--light);border-top:var(--rule);margin:0 -22px -22px;}
+.dm-score{display:flex;align-items:center;gap:8px;}
+.dm-sbar{width:60px;height:3px;background:#D8D8D8;}
+.dm-sf{height:100%;width:90%;background:var(--black);}
+.dm-sl{font-size:11px;font-weight:800;}
+.dm-send{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:8px 16px;background:var(--black);color:var(--white);border:none;cursor:none;}
+
+/* ━━━ TRUST ━━━ */
+.trust{border-bottom:var(--rule);}
+.trust-inner{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);}
+.tr{padding:32px 36px;border-right:var(--rule);display:flex;gap:14px;align-items:flex-start;transition:background .2s;}
+.tr:last-child{border-right:none;}
+.tr:hover{background:var(--xlight);}
+.tr-icon{font-size:22px;flex-shrink:0;}
+.tr-title{font-size:15px;font-weight:800;color:var(--black);margin-bottom:2px;}
+.tr-sub{font-size:12px;font-weight:500;color:var(--grey);line-height:1.5;}
+
+/* ━━━ TICKER ━━━ */
+.ticker{border-bottom:var(--rule);background:var(--black);overflow:hidden;padding:13px 0;display:flex;}
+.t-track{display:flex;white-space:nowrap;animation:scroll 22s linear infinite;}
+.ti{display:inline-flex;align-items:center;gap:14px;padding:0 24px;font-size:11.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.38);}
+.ti b{color:var(--white);}
+.ts{color:var(--red);font-size:18px;}
+
+/* ━━━ SHARED ━━━ */
+.s-tag{font-size:10px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;color:var(--red);margin-bottom:14px;display:flex;align-items:center;gap:10px;}
+.s-tag::before{content:'';width:20px;height:2px;background:var(--red);}
+h2{font-size:clamp(38px,4.8vw,66px);font-weight:900;line-height:.96;letter-spacing:-.03em;color:var(--black);}
+h2 .r{color:var(--red);}
+h2 .it{font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;}
+.s-sub{font-size:17px;font-weight:400;line-height:1.7;color:var(--grey);max-width:500px;margin-top:16px;}
+
+/* ━━━ HOW ━━━ */
+.how{padding:112px 52px;border-bottom:var(--rule);}
+.how-inner{max-width:1240px;margin:0 auto;}
+.how-head{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:end;margin-bottom:72px;}
+.how-aside p{font-size:15px;font-weight:400;color:var(--grey);line-height:1.8;}
+
+.steps-grid{display:grid;grid-template-columns:repeat(3,1fr);border:var(--rule);}
+.step{padding:36px 32px;border-right:var(--rule);border-bottom:var(--rule);position:relative;overflow:hidden;transition:background .22s;cursor:default;}
+.step:nth-child(3n){border-right:none;}
+.step:nth-child(7),.step:nth-child(8),.step:nth-child(9){border-bottom:none;}
+.step:hover{background:var(--black);}
+.step:hover .sh,.step:hover .sp{color:var(--white);}
+.step:hover .sd{color:rgba(255,255,255,.45);}
+.step:hover .s-ghost{color:rgba(255,255,255,.05);}
+.step:hover .s-icon{background:var(--red);border-color:var(--red);}
+.s-ghost{position:absolute;top:12px;right:16px;font-size:84px;font-weight:900;line-height:1;color:rgba(12,12,12,.04);pointer-events:none;transition:color .22s;}
+.s-icon{width:42px;height:42px;background:var(--xlight);border:var(--rule);display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:18px;transition:all .22s;}
+.sh{font-size:16px;font-weight:800;color:var(--black);margin-bottom:8px;transition:color .22s;}
+.sd{font-size:13px;font-weight:400;color:var(--grey);line-height:1.68;transition:color .22s;}
+
+/* ━━━ FEATURES ━━━ */
+.features{background:var(--black);padding:112px 52px;border-bottom:var(--rule);}
+.features-inner{max-width:1240px;margin:0 auto;}
+.features .s-tag{color:var(--red);}
+.features .s-tag::before{background:var(--red);}
+.features h2{color:var(--white);}
+.features .s-sub{color:rgba(255,255,255,.38);}
+
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);border:1.5px solid rgba(255,255,255,.1);margin-top:64px;}
+.fc{padding:40px 32px;border-right:1.5px solid rgba(255,255,255,.1);position:relative;transition:background .22s;overflow:hidden;}
+.fc:last-child{border-right:none;}
+.fc:hover{background:rgba(255,255,255,.04);}
+.fc-line{position:absolute;bottom:0;left:0;right:0;height:2.5px;background:var(--red);transform:scaleX(0);transform-origin:left;transition:transform .35s ease;}
+.fc:hover .fc-line{transform:scaleX(1);}
+.fc-wide{grid-column:span 2;border-bottom:1.5px solid rgba(255,255,255,.1);display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;}
+.fc-wide:hover{background:rgba(255,255,255,.04);}
+.fc-n{font-size:9.5px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.2);margin-bottom:22px;display:block;}
+.fc h3{font-size:19px;font-weight:800;color:var(--white);margin-bottom:10px;}
+.fc p{font-size:14px;font-weight:400;color:rgba(255,255,255,.36);line-height:1.72;}
+
+.ew{border:1.5px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);}
+.ew-top{padding:10px 15px;border-bottom:1.5px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:8px;}
+.ew-d{width:6px;height:6px;background:var(--red);border-radius:50%;animation:pip 1.4s ease infinite;}
+.ew-lbl{font-size:9px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.28);}
+.ew-row{padding:12px 15px;border-bottom:1.5px solid rgba(255,255,255,.05);display:grid;grid-template-columns:18px 1fr;gap:10px;}
+.ew-row:last-child{border:none;}
+.ew-ico{font-size:12px;}
+.ew-cl{font-size:8.5px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--red);margin-bottom:3px;}
+.ew-tx{font-size:11px;font-weight:400;color:rgba(255,255,255,.38);line-height:1.55;}
+
+/* ━━━ PROOF ━━━ */
+.proof{padding:112px 52px;border-bottom:var(--rule);background:var(--xlight);}
+.proof-inner{max-width:1240px;margin:0 auto;}
+.proof-grid{display:grid;grid-template-columns:repeat(3,1fr);border:var(--rule);margin-top:64px;}
+.qc{padding:40px 36px;border-right:var(--rule);transition:background .22s;}
+.qc:last-child{border-right:none;}
+.qc:hover{background:var(--white);}
+.qc-q{font-family:'Instrument Serif',serif;font-size:72px;line-height:.8;color:var(--red);opacity:.18;display:block;margin-bottom:4px;}
+.qc-t{font-family:'Instrument Serif',serif;font-size:19px;font-style:italic;line-height:1.58;color:var(--off);margin-bottom:22px;}
+.qc-auth{display:flex;align-items:center;gap:12px;}
+.qc-av{width:38px;height:38px;background:var(--black);border:var(--rule);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--white);flex-shrink:0;}
+.qc-name{font-size:14px;font-weight:800;color:var(--black);}
+.qc-role{font-size:12px;font-weight:500;color:var(--grey);}
+
+/* ━━━ CTA ━━━ */
+.cta{background:var(--black);padding:140px 52px;position:relative;overflow:hidden;text-align:center;border-bottom:var(--rule);}
+.cta-period{position:absolute;bottom:-200px;right:-60px;font-family:'Darker Grotesque',sans-serif;font-size:700px;font-weight:900;line-height:1;color:rgba(208,0,10,.07);pointer-events:none;user-select:none;}
+.cta::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;}
+.cta h2{color:var(--white);position:relative;z-index:2;}
+.cta p{font-size:17px;font-weight:400;color:rgba(255,255,255,.38);max-width:440px;margin:18px auto 56px;line-height:1.75;position:relative;z-index:2;}
+
+.cta-form{display:flex;max-width:480px;margin:0 auto;position:relative;z-index:2;box-shadow:6px 6px 0 var(--red);}
+.cta-in{flex:1;background:rgba(255,255,255,.06);border:1.5px solid rgba(255,255,255,.25);border-right:none;padding:17px 22px;font-size:16px;font-weight:500;font-family:'Darker Grotesque',sans-serif;color:var(--white);outline:none;transition:border-color .2s;}
+.cta-in:focus{border-color:var(--red);}
+.cta-in::placeholder{color:rgba(255,255,255,.3);}
+.cta-btn{background:var(--red);border:1.5px solid var(--red);padding:17px 32px;font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--white);cursor:none;font-family:'Darker Grotesque',sans-serif;transition:background .18s;white-space:nowrap;}
+.cta-btn:hover{background:var(--red2);}
+
+.cta-social{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:24px;position:relative;z-index:2;}
+.cta-avs{display:flex;}
+.cta-av{width:28px;height:28px;border-radius:50%;border:2px solid var(--black);background:#2A2A2A;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:rgba(255,255,255,.5);margin-left:-7px;}
+.cta-av:first-child{margin-left:0;}
+.cta-count{font-size:13px;font-weight:600;color:rgba(255,255,255,.38);}
+.cta-count b{color:var(--white);}
+
+.cta-ok{display:none;flex-direction:column;align-items:center;gap:18px;position:relative;z-index:2;}
+.cta-ok.on{display:flex;}
+.cta-ok-circle{width:72px;height:72px;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:32px;border:var(--rule);}
+.cta-ok h3{font-size:28px;font-weight:900;color:var(--white);}
+.cta-ok p{font-size:15px;color:rgba(255,255,255,.38);margin:0;}
+
+/* ━━━ FOOTER ━━━ */
+footer{background:var(--black);padding:48px 52px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:24px;}
+.f-logo{font-size:20px;font-weight:900;letter-spacing:-.02em;color:var(--white);text-decoration:none;}
+.f-logo em{font-style:normal;color:var(--red);}
+.f-links{display:flex;gap:28px;list-style:none;}
+.f-links a{font-size:13px;font-weight:600;color:rgba(255,255,255,.28);text-decoration:none;transition:color .18s;cursor:none;}
+.f-links a:hover{color:var(--white);}
+.f-copy{font-size:12px;font-weight:500;color:rgba(255,255,255,.18);}
+
+/* ━━━ SCROLL REVEAL ━━━ */
+.sr{opacity:0;transform:translateY(24px);transition:opacity .72s ease,transform .72s ease;}
+.sr.in{opacity:1;transform:none;}
+
+/* ━━━ KEYFRAMES ━━━ */
+@keyframes risein{from{opacity:0;transform:translateY(18px);}to{opacity:1;transform:none;}}
+@keyframes scroll{0%{transform:translateX(0);}100%{transform:translateX(-50%)}}
+
+/* ━━━ RESPONSIVE ━━━ */
+@media(max-width:960px){
+  nav{padding:0 24px;}
+  .n-links{display:none;}
+  .hero{grid-template-columns:1fr;}
+  .hero-left{padding:56px 24px 52px;border-right:none;border-bottom:var(--rule);}
+  .hero-right{padding:40px 24px;min-height:420px;}
+  .how,.features,.proof,.cta{padding:80px 24px;}
+  .how-head{grid-template-columns:1fr;gap:20px;}
+  .steps-grid{grid-template-columns:1fr;}
+  .step{border-right:none !important;border-bottom:var(--rule) !important;}
+  .step:last-child{border-bottom:none !important;}
+  .feat-grid{grid-template-columns:1fr;}
+  .fc{border-right:none;border-bottom:1.5px solid rgba(255,255,255,.1);}
+  .fc-wide{grid-column:span 1;grid-template-columns:1fr;}
+  .proof-grid{grid-template-columns:1fr;}
+  .qc{border-right:none;border-bottom:var(--rule);}
+  .qc:last-child{border-bottom:none;}
+  .trust-inner{grid-template-columns:1fr 1fr;}
+  .tr{border-bottom:var(--rule);}
+  footer{flex-direction:column;padding:40px 24px;}
+  .h-stats{grid-template-columns:1fr 1fr;}
+}
+</style>
+</head>
+<body>
+
+<div id="dot"></div>
+<div id="ring"></div>
+
+<!-- NAV -->
+<nav id="nav">
+  <a class="n-logo" href="#">clausifai<em>.</em></a>
+  <ul class="n-links">
+    <li><a href="#how">Workflow</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#cta">Waitlist</a></li>
+  </ul>
+  <a class="n-cta" href="#cta">Join Waitlist</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-left">
+    <div class="h-eyebrow"><span class="h-pip"></span>Now accepting early access</div>
+
+    <h1>
+      Any contract<span class="r">.</span><br>
+      <span class="it">Anyone.</span><br>
+      Under a<br>
+      minute<span class="r">.</span>
+    </h1>
+
+    <p class="h-desc">
+      clausifai<span style="color:var(--red)">.</span> generates, explains, scores, and manages every legal document your business needs — <b>no law degree required.</b>
+    </p>
+
+    <div class="wl-box" id="hero-box">
+      <div class="wl-lbl">Get early access</div>
+      <div class="wl-row">
+        <input type="email" class="wl-in" placeholder="your@email.com" id="h-email">
+        <button class="wl-go" onclick="join('h')">Join now →</button>
+      </div>
+      <p class="wl-note">Already <b id="h-count">847 people</b> on the list. No spam.</p>
+    </div>
+    <div class="wl-ok" id="hero-ok">
+      <div class="wl-tick">✓</div>
+      <span>You're on the list. <b>We'll be in touch.</b></span>
+    </div>
+
+    <div class="h-stats">
+      <div class="hs"><div class="hs-n">2<em>min</em></div><div class="hs-l">Draft to signed</div></div>
+      <div class="hs"><div class="hs-n">1<em>.5B</em></div><div class="hs-l">Global freelancers</div></div>
+      <div class="hs"><div class="hs-n">$<em>0</em></div><div class="hs-l">Legal expertise needed</div></div>
+    </div>
+  </div>
+
+  <div class="hero-right">
+    <div class="doc-mock">
+      <div class="dm-top">
+        <span class="dm-title">Freelance Service Agreement</span>
+        <span class="dm-tag">AI Generated</span>
+      </div>
+      <div class="dm-body">
+        <div class="dm-parties">
+          <div class="dm-p"><div class="dm-pl">Client</div><div class="dm-pn">Vertex Studio</div><div class="dm-pr">Pty Ltd · Melbourne</div></div>
+          <div class="dm-p"><div class="dm-pl">Contractor</div><div class="dm-pn">Sarah Chen</div><div class="dm-pr">Freelance Designer</div></div>
+        </div>
+        <div class="dm-lines">
+          <div class="dl f"></div><div class="dl m"></div><div class="dl f"></div>
+          <div class="dl s"></div><div class="dl f"></div><div class="dl m"></div><div class="dl xs"></div>
+        </div>
+        <div class="dm-fair">
+          <span>Fairness</span>
+          <div class="dm-fbar"><div class="dm-ffill"></div></div>
+          <span>7.5 / 10</span>
+        </div>
+        <div class="dm-ai">
+          <div class="dm-ai-dot"></div>
+          <div class="dm-ai-t"><b>Clause 4.2:</b> If the client requests extra work, you can charge your standard rate — protects you from scope creep.</div>
+        </div>
+        <div class="dm-foot">
+          <div class="dm-score"><div class="dm-sbar"><div class="dm-sf"></div></div><span class="dm-sl">Health 9/10</span></div>
+          <button class="dm-send">Send for Signature →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TRUST STRIP -->
+<div class="trust">
+  <div class="trust-inner">
+    <div class="tr"><div class="tr-icon">⚡</div><div><div class="tr-title">Under 2 minutes</div><div class="tr-sub">Blank page to signed contract</div></div></div>
+    <div class="tr"><div class="tr-icon">🌏</div><div><div class="tr-title">Global jurisdictions</div><div class="tr-sub">AU, US, UK, CA and expanding</div></div></div>
+    <div class="tr"><div class="tr-icon">🔒</div><div><div class="tr-title">Bank-grade security</div><div class="tr-sub">AES-256 · AU data residency</div></div></div>
+    <div class="tr"><div class="tr-icon">⚖️</div><div><div class="tr-title">Lawyer-vetted templates</div><div class="tr-sub">Reviewed by practising lawyers</div></div></div>
+  </div>
+</div>
+
+<!-- TICKER -->
+<div class="ticker">
+  <div class="t-track">
+    <span class="ti"><b>Create</b> contracts <span class="ts">✦</span></span>
+    <span class="ti"><b>Understand</b> every clause <span class="ts">✦</span></span>
+    <span class="ti"><b>Score</b> fairness <span class="ts">✦</span></span>
+    <span class="ti"><b>Sign</b> with a secure link <span class="ts">✦</span></span>
+    <span class="ti"><b>Track</b> opens and signatures <span class="ts">✦</span></span>
+    <span class="ti"><b>Scan</b> contracts with camera <span class="ts">✦</span></span>
+    <span class="ti"><b>Negotiate</b> better terms <span class="ts">✦</span></span>
+    <span class="ti"><b>Store</b> everything automatically <span class="ts">✦</span></span>
+    <span class="ti"><b>Create</b> contracts <span class="ts">✦</span></span>
+    <span class="ti"><b>Understand</b> every clause <span class="ts">✦</span></span>
+    <span class="ti"><b>Score</b> fairness <span class="ts">✦</span></span>
+    <span class="ti"><b>Sign</b> with a secure link <span class="ts">✦</span></span>
+    <span class="ti"><b>Track</b> opens and signatures <span class="ts">✦</span></span>
+    <span class="ti"><b>Scan</b> contracts with camera <span class="ts">✦</span></span>
+    <span class="ti"><b>Negotiate</b> better terms <span class="ts">✦</span></span>
+    <span class="ti"><b>Store</b> everything automatically <span class="ts">✦</span></span>
+  </div>
+</div>
+
+<!-- HOW IT WORKS -->
+<section id="how" class="how">
+  <div class="how-inner">
+    <div class="how-head sr">
+      <div>
+        <div class="s-tag">The workflow</div>
+        <h2>Nine steps<span class="r">.</span><br>One <span class="it">seamless</span> experience<span class="r">.</span></h2>
+      </div>
+      <div class="how-aside">
+        <p>Everything that used to take hours, cost hundreds, and leave you anxious — collapsed into two minutes inside one platform. Nothing to print. Nothing to scan. Nothing to lose.</p>
+      </div>
+    </div>
+    <div class="steps-grid sr" style="transition-delay:.1s">
+      <div class="step"><div class="s-ghost">01</div><div class="s-icon">👤</div><p class="sh">Smart Onboarding</p><p class="sd">Enter your details once. Every future document auto-fills — name, ABN, address, jurisdiction, all of it.</p></div>
+      <div class="step"><div class="s-ghost">02</div><div class="s-icon">📚</div><p class="sh">Template Library</p><p class="sd">Lawyer-vetted NDAs, service agreements, SLAs and more. Every template built for your jurisdiction.</p></div>
+      <div class="step"><div class="s-ghost">03</div><div class="s-icon">✨</div><p class="sh">AI Auto-Fill</p><p class="sd">Add a few details. The AI generates a personalised contract in seconds — correct clauses, clean formatting.</p></div>
+      <div class="step"><div class="s-ghost">04</div><div class="s-icon">💬</div><p class="sh">Plain English Explainer</p><p class="sd">Every clause translated into language anyone can understand. Know exactly what you're agreeing to.</p></div>
+      <div class="step"><div class="s-ghost">05</div><div class="s-icon">⚖️</div><p class="sh">Fairness Score</p><p class="sd">See whose interests the contract favours before you sign. The world's first fairness meter for non-lawyers.</p></div>
+      <div class="step"><div class="s-ghost">06</div><div class="s-icon">🛡️</div><p class="sh">Health Score</p><p class="sd">A completeness rating flags what's covered and what's missing. Send with full confidence.</p></div>
+      <div class="step"><div class="s-ghost">07</div><div class="s-icon">🔗</div><p class="sh">Secure Signing Link</p><p class="sd">Time-limited, encrypted links replace the email-PDF-print-scan loop. Counterparty signs in browser.</p></div>
+      <div class="step"><div class="s-ghost">08</div><div class="s-icon">📊</div><p class="sh">Signing Analytics</p><p class="sd">See when they opened it, how long they read, whether they signed. No more chasing in the dark.</p></div>
+      <div class="step"><div class="s-ghost">09</div><div class="s-icon">📂</div><p class="sh">Auto-Storage</p><p class="sd">Every signed document saved, named, and organised automatically. Expiry reminders included.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES DARK -->
+<section id="features" class="features">
+  <div class="features-inner">
+    <div class="sr">
+      <div class="s-tag">What sets us apart</div>
+      <h2>Built for <span class="it">real people<span class="r">.</span></span><br>Not law firms.</h2>
+      <p class="s-sub">Every feature removes a friction point from the contract process. None of them add one.</p>
+    </div>
+    <div class="feat-grid sr" style="transition-delay:.1s">
+      <div class="fc fc-wide">
+        <div>
+          <span class="fc-n">01 — Exclusive Feature</span>
+          <h3>Contract Camera</h3>
+          <p>Point your phone at any contract someone hands you. clausifai. reads it, explains every clause, scores its fairness, and flags the risky parts in red — before you sign anything. Nobody else does this.</p>
+        </div>
+        <div class="ew">
+          <div class="ew-top"><div class="ew-d"></div><div class="ew-lbl">Live clause analysis</div></div>
+          <div class="ew-row"><span class="ew-ico">📌</span><div><div class="ew-cl">Payment — Cl. 3.1</div><div class="ew-tx">Paid within 14 days of invoicing. Late payments attract 1.5% monthly interest.</div></div></div>
+          <div class="ew-row"><span class="ew-ico">🚨</span><div><div class="ew-cl">IP Ownership — Cl. 7.2 · Risk flagged</div><div class="ew-tx">Client owns all work — even if unpaid. Strongly consider negotiating this clause before signing.</div></div></div>
+          <div class="ew-row"><span class="ew-ico">✅</span><div><div class="ew-cl">Termination — Cl. 9.1</div><div class="ew-tx">Either party exits with 14 days notice. You get paid for all completed work up to that point.</div></div></div>
+        </div>
+        <div class="fc-line"></div>
+      </div>
+      <div class="fc"><span class="fc-n">02 — Negotiation</span><h3>Negotiation Copilot</h3><p>Don't just understand a clause — get the exact alternative wording to propose back. clausifai. tells you what's negotiable and how to say it professionally.</p><div class="fc-line"></div></div>
+      <div class="fc"><span class="fc-n">03 — Memory</span><h3>Relationship Memory</h3><p>clausifai. remembers every deal with every client. Next time, it pre-fills with your history — rates, scope boundaries, preferred payment terms, all of it.</p><div class="fc-line"></div></div>
+      <div class="fc" style="border-right:none"><span class="fc-n">04 — Analytics</span><h3>Signing Intelligence</h3><p>Know when they opened it, how long they spent reading, and exactly where they hesitated. Real-time visibility into every document you've ever sent.</p><div class="fc-line"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- PROOF -->
+<section class="proof">
+  <div class="proof-inner">
+    <div class="sr">
+      <div class="s-tag">Early feedback</div>
+      <h2>People who stopped<br><span class="it r">dreading</span> contracts<span class="r">.</span></h2>
+    </div>
+    <div class="proof-grid sr" style="transition-delay:.1s">
+      <div class="qc"><span class="qc-q">"</span><p class="qc-t">I used to spend an hour hunting for a template. Now it's done before my coffee goes cold.</p><div class="qc-auth"><div class="qc-av">JK</div><div><div class="qc-name">Jamie K.</div><div class="qc-role">Freelance Designer · Melbourne</div></div></div></div>
+      <div class="qc"><span class="qc-q">"</span><p class="qc-t">The Plain English Explainer alone is worth every cent. I actually understand what I'm signing now.</p><div class="qc-auth"><div class="qc-av">SP</div><div><div class="qc-name">Samira P.</div><div class="qc-role">Founder · Cairns, AU</div></div></div></div>
+      <div class="qc"><span class="qc-q">"</span><p class="qc-t">Sent a signing link Sunday night. Client signed in 20 minutes. That used to be a three-day email chain.</p><div class="qc-auth"><div class="qc-av">TW</div><div><div class="qc-name">Tom W.</div><div class="qc-role">Consultant · Sydney</div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA WAITLIST -->
+<section id="cta" class="cta">
+  <div class="cta-period">.</div>
+  <h2 class="sr">Join the waitlist<span class="r">.</span><br>Be first in.</h2>
+  <p class="sr" style="transition-delay:.12s">clausifai. is launching soon. Founding members get early access, locked-in pricing, and a direct line to shape the product.</p>
+
+  <div class="cta-form sr" id="cta-form" style="transition-delay:.24s">
+    <input type="email" class="cta-in" placeholder="your@email.com" id="cta-email">
+    <button class="cta-btn" onclick="join('cta')">Secure My Spot →</button>
+  </div>
+
+  <div class="cta-ok" id="cta-ok">
+    <div class="cta-ok-circle">✓</div>
+    <h3>You're on the list.</h3>
+    <p>We'll be in touch before launch. Welcome to clausifai.</p>
+  </div>
+
+  <div class="cta-social sr" id="cta-social" style="transition-delay:.38s">
+    <div class="cta-avs">
+      <div class="cta-av">JK</div><div class="cta-av">SP</div>
+      <div class="cta-av">TW</div><div class="cta-av">+</div>
+    </div>
+    <div class="cta-count"><b id="cta-count">847 people</b> already waiting</div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <a class="f-logo" href="#">clausifai<em>.</em></a>
+  <ul class="f-links">
+    <li><a href="#">Privacy</a></li>
+    <li><a href="#">Terms</a></li>
+    <li><a href="#">Security</a></li>
+    <li><a href="#">Contact</a></li>
+  </ul>
+  <div class="f-copy">© 2026 clausifai. All rights reserved.</div>
+</footer>
+
+<script>
+// cursor
+const dot=document.getElementById('dot'),ring=document.getElementById('ring');
+let mx=0,my=0,rx=0,ry=0;
+document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;dot.style.left=mx+'px';dot.style.top=my+'px';});
+(function loop(){rx+=(mx-rx)*.12;ry+=(my-ry)*.12;ring.style.left=rx+'px';ring.style.top=ry+'px';requestAnimationFrame(loop);})();
+document.querySelectorAll('a,button,.step,.fc,.qc,.tr').forEach(el=>{
+  el.addEventListener('mouseenter',()=>{dot.style.width='12px';dot.style.height='12px';dot.style.borderRadius='2px';ring.style.width='48px';ring.style.height='48px';ring.style.borderColor='var(--red)';ring.style.borderRadius='3px';});
+  el.addEventListener('mouseleave',()=>{dot.style.width='9px';dot.style.height='9px';dot.style.borderRadius='50%';ring.style.width='34px';ring.style.height='34px';ring.style.borderColor='var(--black)';ring.style.borderRadius='50%';});
+});
+
+// waitlist
+let n=847;
+function join(which){
+  const id=which==='h'?'h-email':'cta-email';
+  const el=document.getElementById(id);
+  const v=el.value.trim();
+  if(!v||!v.includes('@')){
+    el.style.borderColor='var(--red)';
+    el.placeholder='Enter a valid email ↑';
+    setTimeout(()=>{el.style.borderColor='';el.placeholder='your@email.com';},2200);
+    return;
+  }
+  n++;
+  const ns=n.toLocaleString();
+  if(which==='h'){
+    document.getElementById('hero-box').style.display='none';
+    document.getElementById('hero-ok').classList.add('on');
+  } else {
+    document.getElementById('cta-form').style.display='none';
+    document.getElementById('cta-social').style.display='none';
+    document.getElementById('cta-ok').classList.add('on');
+  }
+  document.querySelectorAll('#h-count,#cta-count').forEach(e=>{if(e)e.textContent=ns+' people';});
+}
+document.querySelectorAll('.wl-in,.cta-in').forEach(inp=>{
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')join(inp.id==='h-email'?'h':'cta');});
+});
+
+// scroll reveal
+const obs=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');obs.unobserve(e.target);}}),{threshold:.08});
+document.querySelectorAll('.sr').forEach(el=>obs.observe(el));
+
+// smooth scroll
+document.querySelectorAll('a[href^="#"]').forEach(a=>a.addEventListener('click',e=>{
+  const t=document.querySelector(a.getAttribute('href'));
+  if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth'});}
+}));
+</script>
+</body>
+</html>
