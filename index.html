@@ -257,6 +257,91 @@ h2 .r{color:var(--red);}
 h2 .it{font-family:'Instrument Serif',serif;font-weight:400;font-style:italic;}
 .s-sub{font-size:17px;font-weight:400;line-height:1.7;color:var(--grey);max-width:500px;margin-top:16px;}
 
+/* ━━━ DEMO STEPS ━━━ */
+.demo{padding:112px 52px;border-bottom:var(--rule);background:var(--white);}
+.demo-inner{max-width:1240px;margin:0 auto;}
+.demo-head{text-align:center;margin-bottom:72px;}
+.demo-head .s-tag{justify-content:center;}
+.demo-head .s-tag::before{display:none;}
+.demo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:var(--rule);}
+.demo-card{border-right:var(--rule);display:flex;flex-direction:column;}
+.demo-card:last-child{border-right:none;}
+.demo-card-top{padding:28px 28px 0;display:flex;align-items:center;gap:14px;}
+.demo-step-num{width:36px;height:36px;background:var(--black);color:var(--white);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;letter-spacing:.04em;flex-shrink:0;}
+.demo-step-label{font-size:11px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--grey);}
+.demo-card-title{padding:14px 28px 6px;font-size:26px;font-weight:900;color:var(--black);letter-spacing:-.02em;}
+.demo-card-desc{padding:0 28px 24px;font-size:15px;font-weight:400;color:var(--grey);line-height:1.65;}
+.demo-screen{margin:0 28px 28px;border:var(--rule);flex:1;overflow:hidden;position:relative;}
+
+/* Create screen */
+.ds-create-bar{background:var(--black);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;}
+.ds-create-bar-title{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.5);}
+.ds-create-bar-btn{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;background:var(--red);color:var(--white);}
+.ds-template-pick{padding:14px;border-bottom:var(--rule);display:flex;gap:8px;}
+.ds-tpl{font-size:10px;font-weight:700;padding:6px 12px;border:var(--rule);color:var(--grey);cursor:default;}
+.ds-tpl.active{background:var(--black);color:var(--white);border-color:var(--black);}
+.ds-field{padding:10px 14px;border-bottom:1px solid #EBEBEB;display:grid;grid-template-columns:90px 1fr;align-items:center;gap:8px;}
+.ds-field:last-child{border-bottom:none;}
+.ds-flbl{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);}
+.ds-fval{font-size:12px;font-weight:600;color:var(--black);}
+.ds-fval.ai{color:var(--red);}
+.ds-ai-banner{background:#FFF5F5;border-top:var(--rule);padding:10px 14px;display:flex;align-items:center;gap:8px;}
+.ds-ai-dot{width:6px;height:6px;background:var(--red);border-radius:50%;flex-shrink:0;animation:pip 1.4s ease infinite;}
+.ds-ai-msg{font-size:11px;font-weight:600;color:var(--off);}
+.ds-ai-msg b{color:var(--red);}
+
+/* Sign screen */
+.ds-sign-bar{background:var(--red);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;}
+.ds-sign-bar-title{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.8);}
+.ds-sign-secure{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;background:rgba(255,255,255,.15);color:var(--white);}
+.ds-sign-meta{padding:12px 14px;border-bottom:var(--rule);display:flex;align-items:center;justify-content:space-between;}
+.ds-sign-from{font-size:11px;font-weight:600;color:var(--grey);}
+.ds-sign-from b{color:var(--black);}
+.ds-sign-status{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:3px 9px;border:var(--rule);}
+.ds-sign-preview{padding:12px 14px;border-bottom:var(--rule);}
+.ds-sign-line{height:8px;background:var(--light);margin-bottom:6px;}
+.ds-sign-line.f{width:100%;}.ds-sign-line.m{width:72%;}.ds-sign-line.s{width:50%;}
+.ds-sign-box{margin:12px 14px;border:2px dashed #DADADA;padding:18px;text-align:center;}
+.ds-sign-box-lbl{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--grey);margin-bottom:10px;}
+.ds-sig-img{font-family:'Instrument Serif',serif;font-size:28px;font-style:italic;color:var(--black);line-height:1;}
+.ds-sign-btn{margin:0 14px 14px;background:var(--black);color:var(--white);font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:11px;text-align:center;border:var(--rule);}
+
+/* Store screen */
+.ds-store-bar{background:var(--black);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;}
+.ds-store-bar-title{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.5);}
+.ds-store-search{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:4px 10px;font-size:10px;color:rgba(255,255,255,.4);font-family:'Darker Grotesque',sans-serif;width:110px;}
+.ds-doc-row{padding:12px 14px;border-bottom:1px solid #EBEBEB;display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;}
+.ds-doc-row:last-child{border-bottom:none;}
+.ds-doc-name{font-size:12px;font-weight:800;color:var(--black);margin-bottom:2px;}
+.ds-doc-meta{font-size:10px;font-weight:500;color:var(--grey);}
+.ds-doc-badge{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;}
+.ds-doc-badge.signed{background:var(--black);color:var(--white);}
+.ds-doc-badge.pending{background:var(--light);color:var(--grey);}
+.ds-doc-badge.draft{border:var(--rule);color:var(--grey);}
+.ds-enc-badge{font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);}
+.ds-client-row{border-bottom:1px solid #EBEBEB;}
+.ds-client-row:last-of-type{border-bottom:none;}
+.ds-client-head{padding:12px 14px;display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:10px;}
+.ds-client-av{width:34px;height:34px;background:var(--black);color:var(--white);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;}
+.ds-client-name{font-size:13px;font-weight:800;color:var(--black);}
+.ds-client-meta{font-size:10px;font-weight:500;color:var(--grey);margin-top:1px;}
+.ds-client-lock{font-size:12px;opacity:.35;}
+.ds-client-docs{background:var(--xlight);border-top:1px solid #EBEBEB;padding:6px 14px 6px 58px;}
+.ds-cdoc{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #E4E4E4;}
+.ds-cdoc:last-child{border-bottom:none;}
+.ds-cdoc-name{font-size:11px;font-weight:600;color:var(--off);}
+.ds-store-footer{padding:10px 14px;background:var(--black);border-top:var(--rule);display:flex;align-items:center;justify-content:space-between;}
+.ds-store-count{font-size:11px;font-weight:700;color:rgba(255,255,255,.4);}
+.ds-store-count b{color:var(--white);}
+.ds-expiry{font-size:10px;font-weight:700;color:var(--red);}
+
+@media(max-width:960px){
+  .demo{padding:80px 24px;}
+  .demo-grid{grid-template-columns:1fr;}
+  .demo-card{border-right:none;border-bottom:var(--rule);}
+  .demo-card:last-child{border-bottom:none;}
+}
+
 /* ━━━ HOW ━━━ */
 .how{padding:112px 52px;border-bottom:var(--rule);}
 .how-inner{max-width:1240px;margin:0 auto;}
@@ -523,6 +608,138 @@ footer{background:var(--black);padding:48px 52px;display:flex;align-items:center
     <span class="ti"><b>Store</b> everything automatically <span class="ts"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z" fill="currentColor"/></svg></span></span>
   </div>
 </div>
+
+<!-- DEMO STEPS -->
+<section class="demo">
+  <div class="demo-inner">
+    <div class="demo-head sr">
+      <div class="s-tag">See it in action</div>
+      <h2>Create<span class="r">.</span> Sign<span class="r">.</span> <span class="it">Store.</span></h2>
+      <p class="s-sub" style="margin:16px auto 0;text-align:center;">Everything in under two minutes — no printing, no scanning, no chasing.</p>
+    </div>
+    <div class="demo-grid sr" style="transition-delay:.1s">
+
+      <!-- 01 CREATE -->
+      <div class="demo-card">
+        <div class="demo-card-top">
+          <div class="demo-step-num">01</div>
+          <div class="demo-step-label">Create</div>
+        </div>
+        <div class="demo-card-title">Generate your contract</div>
+        <div class="demo-card-desc">Pick a template, answer a few questions. The AI fills every clause correctly in seconds.</div>
+        <div class="demo-screen">
+          <div class="ds-create-bar">
+            <span class="ds-create-bar-title">New Contract</span>
+            <span class="ds-create-bar-btn">AI Generate →</span>
+          </div>
+          <div class="ds-template-pick">
+            <div class="ds-tpl active">Service Agreement</div>
+            <div class="ds-tpl">NDA</div>
+            <div class="ds-tpl">SLA</div>
+          </div>
+          <div class="ds-field"><span class="ds-flbl">Client</span><span class="ds-fval">Vertex Studio Pty Ltd</span></div>
+          <div class="ds-field"><span class="ds-flbl">Contractor</span><span class="ds-fval">Sarah Chen</span></div>
+          <div class="ds-field"><span class="ds-flbl">Rate</span><span class="ds-fval ai">$8,500 AUD — AI suggested ✦</span></div>
+          <div class="ds-field"><span class="ds-flbl">Jurisdiction</span><span class="ds-fval">Victoria, AU</span></div>
+          <div class="ds-field"><span class="ds-flbl">Payment</span><span class="ds-fval ai">14 days net — AI suggested ✦</span></div>
+          <div class="ds-ai-banner">
+            <div class="ds-ai-dot"></div>
+            <div class="ds-ai-msg"><b>4 clauses</b> auto-filled based on your profile</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 02 SIGN -->
+      <div class="demo-card">
+        <div class="demo-card-top">
+          <div class="demo-step-num">02</div>
+          <div class="demo-step-label">Sign</div>
+        </div>
+        <div class="demo-card-title">Send a secure link</div>
+        <div class="demo-card-desc">One click sends a time-limited encrypted link. Your counterparty signs right in their browser.</div>
+        <div class="demo-screen">
+          <div class="ds-sign-bar">
+            <span class="ds-sign-bar-title">Secure Signing Link</span>
+            <span class="ds-sign-secure">🔒 Encrypted</span>
+          </div>
+          <div class="ds-sign-meta">
+            <div class="ds-sign-from">From <b>Sarah Chen</b> via clausifai.</div>
+            <div class="ds-sign-status">Awaiting signature</div>
+          </div>
+          <div class="ds-sign-preview">
+            <div class="ds-sign-line f"></div>
+            <div class="ds-sign-line m"></div>
+            <div class="ds-sign-line f"></div>
+            <div class="ds-sign-line s"></div>
+            <div class="ds-sign-line m"></div>
+          </div>
+          <div class="ds-sign-box">
+            <div class="ds-sign-box-lbl">Sign here</div>
+            <div class="ds-sig-img">Alex Morrison</div>
+          </div>
+          <div class="ds-sign-btn">Confirm &amp; Sign Document →</div>
+        </div>
+      </div>
+
+      <!-- 03 STORE -->
+      <div class="demo-card">
+        <div class="demo-card-top">
+          <div class="demo-step-num">03</div>
+          <div class="demo-step-label">Store</div>
+        </div>
+        <div class="demo-card-title">Everything auto-saved</div>
+        <div class="demo-card-desc">Signed documents are named, organised, and stored automatically. Expiry reminders included.</div>
+        <div class="demo-screen">
+          <div class="ds-store-bar">
+            <span class="ds-store-bar-title">My Vault</span>
+            <span class="ds-enc-badge">🔒 AES-256</span>
+          </div>
+          <!-- client rows -->
+          <div class="ds-client-row expanded">
+            <div class="ds-client-head">
+              <div class="ds-client-av">VS</div>
+              <div>
+                <div class="ds-client-name">Vertex Studio</div>
+                <div class="ds-client-meta">3 contracts · last active 8 Mar</div>
+              </div>
+              <div class="ds-client-lock">🔒</div>
+            </div>
+            <div class="ds-client-docs">
+              <div class="ds-cdoc"><span class="ds-cdoc-name">Service Agreement</span><span class="ds-doc-badge signed">Signed</span></div>
+              <div class="ds-cdoc"><span class="ds-cdoc-name">NDA — 2025</span><span class="ds-doc-badge signed">Signed</span></div>
+              <div class="ds-cdoc"><span class="ds-cdoc-name">Scope Amendment</span><span class="ds-doc-badge pending">Pending</span></div>
+            </div>
+          </div>
+          <div class="ds-client-row">
+            <div class="ds-client-head">
+              <div class="ds-client-av">BL</div>
+              <div>
+                <div class="ds-client-name">Bright Labs</div>
+                <div class="ds-client-meta">1 contract · last active 6 Mar</div>
+              </div>
+              <div class="ds-client-lock">🔒</div>
+            </div>
+          </div>
+          <div class="ds-client-row">
+            <div class="ds-client-head">
+              <div class="ds-client-av">MK</div>
+              <div>
+                <div class="ds-client-name">Mako Creative</div>
+                <div class="ds-client-meta">2 contracts · last active 1 Mar</div>
+              </div>
+              <div class="ds-client-lock">🔒</div>
+            </div>
+          </div>
+          <div class="ds-store-footer">
+            <div class="ds-store-count"><b>3 clients · 12 contracts</b> encrypted</div>
+            <div class="ds-expiry">⚠ 1 expiring soon</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
 
 <!-- HOW IT WORKS -->
 <section id="how" class="how">
