@@ -633,6 +633,25 @@ document.querySelectorAll('a,button,.step,.fc,.qc,.tr').forEach(el=>{
 // ━━━ WAITLIST ━━━
 let n = 143
 
+async function getWaitlistCount() {
+  try {
+    const { count, error } = await sb
+      .from('waitlist')
+      .select('*', { count: 'exact', head: true })
+    
+    if (error) throw error
+    
+    n = 143 + (count || 0)
+    document.querySelectorAll('#h-count,#cta-count')
+      .forEach(e => { if (e) e.textContent = n.toLocaleString() + ' people' })
+  } catch (err) {
+    console.error('Failed to fetch waitlist count:', err)
+  }
+}
+
+// Fetch count on page load
+getWaitlistCount()
+
 async function join(which) {
   const id  = which === 'h' ? 'h-email' : 'cta-email'
   const el  = document.getElementById(id)
@@ -659,10 +678,8 @@ async function join(which) {
     // 23505 = unique violation (duplicate email) — still show success
     if (error && error.code !== '23505') throw error
 
-    n++
     showSuccess(which)
-    document.querySelectorAll('#h-count,#cta-count')
-      .forEach(e => { if (e) e.textContent = n.toLocaleString() + ' people' })
+    await getWaitlistCount()
 
   } catch (err) {
     btn.disabled = false
