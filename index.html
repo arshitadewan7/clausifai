@@ -6,6 +6,8 @@
 <title>clausifai. — Contract in minutes. Protected forever.</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@300;400;500;600;700;800;900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<!-- ━━━ SUPABASE ━━━ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{scroll-behavior:smooth;}
@@ -574,7 +576,15 @@ footer{background:var(--black);padding:48px 52px;display:flex;align-items:center
 </footer>
 
 <script>
-// cursor
+// ━━━ SUPABASE INIT ━━━
+// Replace these two values with yours from Supabase → Settings → API
+const { createClient } = supabase
+const sb = createClient(
+  'https://pgwczmwsqghjemzzvfsq.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBnd2N6bXdzcWdoamVtenp2ZnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNDI4OTksImV4cCI6MjA4ODYxODg5OX0.gziJ4ioJO7AZj7n6cnM7ugbDJBFs0apdWgohqtdanDE'
+)
+
+// ━━━ CURSOR ━━━
 const dot=document.getElementById('dot'),ring=document.getElementById('ring');
 let mx=0,my=0,rx=0,ry=0;
 document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;dot.style.left=mx+'px';dot.style.top=my+'px';});
@@ -584,39 +594,70 @@ document.querySelectorAll('a,button,.step,.fc,.qc,.tr').forEach(el=>{
   el.addEventListener('mouseleave',()=>{dot.style.width='9px';dot.style.height='9px';dot.style.borderRadius='50%';ring.style.width='34px';ring.style.height='34px';ring.style.borderColor='var(--black)';ring.style.borderRadius='50%';});
 });
 
-// waitlist
-let n=847;
-function join(which){
-  const id=which==='h'?'h-email':'cta-email';
-  const el=document.getElementById(id);
-  const v=el.value.trim();
-  if(!v||!v.includes('@')){
-    el.style.borderColor='var(--red)';
-    el.placeholder='Enter a valid email ↑';
-    setTimeout(()=>{el.style.borderColor='';el.placeholder='your@email.com';},2200);
-    return;
-  }
-  n++;
-  const ns=n.toLocaleString();
-  if(which==='h'){
-    document.getElementById('hero-box').style.display='none';
-    document.getElementById('hero-ok').classList.add('on');
-  } else {
-    document.getElementById('cta-form').style.display='none';
-    document.getElementById('cta-social').style.display='none';
-    document.getElementById('cta-ok').classList.add('on');
-  }
-  document.querySelectorAll('#h-count,#cta-count').forEach(e=>{if(e)e.textContent=ns+' people';});
-}
-document.querySelectorAll('.wl-in,.cta-in').forEach(inp=>{
-  inp.addEventListener('keydown',e=>{if(e.key==='Enter')join(inp.id==='h-email'?'h':'cta');});
-});
+// ━━━ WAITLIST ━━━
+let n = 124
 
-// scroll reveal
+async function join(which) {
+  const id  = which === 'h' ? 'h-email' : 'cta-email'
+  const el  = document.getElementById(id)
+  const btn = el.nextElementSibling
+  const email = el.value.trim().toLowerCase()
+
+  // validate
+  if (!email || !email.includes('@')) {
+    el.style.borderColor = 'var(--red)'
+    el.placeholder = 'Enter a valid email ↑'
+    setTimeout(() => { el.style.borderColor = ''; el.placeholder = 'your@email.com' }, 2200)
+    return
+  }
+
+  // loading state
+  btn.disabled = true
+  btn.textContent = '...'
+
+  try {
+    const { error } = await sb
+      .from('waitlist')
+      .insert({ email, source: which === 'h' ? 'hero' : 'cta' })
+
+    // 23505 = unique violation (duplicate email) — still show success
+    if (error && error.code !== '23505') throw error
+
+    n++
+    showSuccess(which)
+    document.querySelectorAll('#h-count,#cta-count')
+      .forEach(e => { if (e) e.textContent = n.toLocaleString() + ' people' })
+
+  } catch (err) {
+    btn.disabled = false
+    btn.textContent = which === 'h' ? 'Join now →' : 'Secure My Spot →'
+    el.style.borderColor = 'var(--red)'
+    el.placeholder = 'Something went wrong — try again'
+    setTimeout(() => { el.style.borderColor = ''; el.placeholder = 'your@email.com' }, 2500)
+  }
+}
+
+function showSuccess(which) {
+  if (which === 'h') {
+    document.getElementById('hero-box').style.display = 'none'
+    document.getElementById('hero-ok').classList.add('on')
+  } else {
+    document.getElementById('cta-form').style.display  = 'none'
+    document.getElementById('cta-social').style.display = 'none'
+    document.getElementById('cta-ok').classList.add('on')
+  }
+}
+
+// ━━━ ENTER KEY ━━━
+document.querySelectorAll('.wl-in,.cta-in').forEach(inp => {
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') join(inp.id === 'h-email' ? 'h' : 'cta') })
+})
+
+// ━━━ SCROLL REVEAL ━━━
 const obs=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');obs.unobserve(e.target);}}),{threshold:.08});
 document.querySelectorAll('.sr').forEach(el=>obs.observe(el));
 
-// smooth scroll
+// ━━━ SMOOTH SCROLL ━━━
 document.querySelectorAll('a[href^="#"]').forEach(a=>a.addEventListener('click',e=>{
   const t=document.querySelector(a.getAttribute('href'));
   if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth'});}
