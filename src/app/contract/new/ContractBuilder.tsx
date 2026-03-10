@@ -1,0 +1,410 @@
+'use client'
+
+import { useState, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { ContractIntent } from '@/lib/pipeline/intent-parser'
+import type { RiskAnalysis } from '@/lib/pipeline/risk-analyser'
+
+type Stage = 'idle' | 'parsing' | 'retrieval' | 'generation' | 'risk' | 'complete' | 'error'
+
+const STAGE_LABELS: Record<string, string> = {
+  parsing: 'Understanding your request',
+  retrieval: 'Retrieving relevant clauses',
+  generation: 'Drafting your contract',
+  risk: 'Analysing risks',
+}
+
+const RISK_COLOURS: Record<string, string> = {
+  high: 'text-red-600 bg-red-50 border-red-200',
+  medium: 'text-amber-600 bg-amber-50 border-amber-200',
+  low: 'text-green-600 bg-green-50 border-green-200',
+}
+
+export default function ContractBuilder() {
+  const [prompt, setPrompt] = useState('')
+  const [stage, setStage] = useState<Stage>('idle')
+  const [stageMessage, setStageMessage] = useState('')
+  const [intent, setIntent] = useState<ContractIntent | null>(null)
+  const [contract, setContract] = useState('')
+  const [clauseCount, setClauseCount] = useState(0)
+  const [risk, setRisk] = useState<RiskAnalysis | null>(null)
+  const [error, setError] = useState('')
+  const contractRef = useRef<HTMLDivElement>(null)
+
+  async function generate() {
+    if (!prompt.trim()) return
+    setStage('parsing')
+    setStageMessage('Understanding your request...')
+    setIntent(null)
+    setContract('')
+    setRisk(null)
+    setError('')
+
+    const res = await fetch('/api/contracts/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    })
+
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const event = JSON.parse(line.slice(6))
+
+          if (event.type === 'stage') {
+            setStage(event.stage)
+            setStageMessage(event.message)
+          } else if (event.type === 'intent') {
+            setIntent(event.data)
+          } else if (event.type === 'clauses') {
+            setClauseCount(event.count)
+          } else if (event.type === 'token') {
+            setContract((prev) => {
+              const updated = prev + event.content
+              requestAnimationFrame(() =>
+                contractRef.current?.scrollTo({ top: contractRef.current.scrollHeight, behavior: 'smooth' }),
+              )
+              return updated
+            })
+          } else if (event.type === 'risk') {
+            setRisk(event.data)
+          } else if (event.type === 'complete') {
+            setStage('complete')
+          } else if (event.type === 'error') {
+            setError(event.message)
+            setStage('error')
+          }
+        } catch {
+          // malformed SSE line — skip
+        }
+      }
+    }
+  }
+
+  const isRunning = stage !== 'idle' && stage !== 'complete' && stage !== 'error'
+  const stages = ['parsing', 'retrieval', 'generation', 'risk'] as const
+  const currentStageIndex = stages.indexOf(stage as typeof stages[number])
+
+  return (
+    <div className="min-h-screen bg-[#F8F8F8] font-sans">
+      {/* Header */}
+      <header className="bg-white border-b border-[#0C0C0C] px-8 py-4 flex items-center justify-between">
+        <span className="text-xl font-black tracking-tight">
+          clausifai<span className="text-[#D0000A]">.</span>
+        </span>
+        <span className="text-xs font-bold uppercase tracking-widest text-[#656565]">Contract Generator</span>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-8 py-10 grid grid-cols-1 xl:grid-cols-[480px_1fr] gap-8">
+        {/* Left panel */}
+        <div className="flex flex-col gap-6">
+          {/* Prompt */}
+          <div className="bg-white border border-[#0C0C0C] shadow-[5px_5px_0_#0C0C0C]">
+            <div className="bg-[#0C0C0C] px-5 py-3 flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-[#D0000A] animate-pulse" />
+              <span className="text-[11px] font-bold uppercase tracking-widest text-white/60">
+                Describe your contract
+              </span>
+            </div>
+            <div className="p-5">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                disabled={isRunning}
+                rows={6}
+                placeholder={`e.g. "I need a freelance service agreement between Vertex Studio and Sarah Chen, a UI designer, for $8,500 AUD over 3 months. Payment due within 14 days. Client owns all IP. Based in Melbourne, Victoria."`}
+                className="w-full resize-none text-[15px] font-medium text-[#0C0C0C] bg-transparent outline-none placeholder:text-[#ADADAD] leading-relaxed"
+              />
+              <button
+                onClick={generate}
+                disabled={isRunning || !prompt.trim()}
+                className="mt-4 w-full bg-[#D0000A] text-white font-black text-[12px] uppercase tracking-widest py-4 border border-[#0C0C0C] shadow-[3px_3px_0_#0C0C0C] hover:bg-[#A80008] hover:shadow-[4px_4px_0_#0C0C0C] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {isRunning ? 'Generating...' : 'Generate Contract →'}
+              </button>
+            </div>
+          </div>
+
+          {/* Pipeline stages */}
+          {stage !== 'idle' && (
+            <div className="bg-white border border-[#0C0C0C]">
+              <div className="px-5 py-3 border-b border-[#0C0C0C]">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#656565]">Pipeline</span>
+              </div>
+              <div className="divide-y divide-[#EBEBEB]">
+                {stages.map((s, i) => {
+                  const done = currentStageIndex > i || stage === 'complete'
+                  const active = s === stage
+                  return (
+                    <div key={s} className={`px-5 py-3 flex items-center gap-3 ${active ? 'bg-[#FFF5F5]' : ''}`}>
+                      <div
+                        className={`w-5 h-5 flex items-center justify-center text-[10px] font-black border flex-shrink-0 ${
+                          done
+                            ? 'bg-[#0C0C0C] border-[#0C0C0C] text-white'
+                            : active
+                            ? 'bg-[#D0000A] border-[#D0000A] text-white'
+                            : 'border-[#DADADA] text-[#ADADAD]'
+                        }`}
+                      >
+                        {done ? '✓' : i + 1}
+                      </div>
+                      <div>
+                        <div className={`text-[13px] font-800 ${active ? 'text-[#D0000A]' : done ? 'text-[#0C0C0C]' : 'text-[#ADADAD]'}`}>
+                          {STAGE_LABELS[s]}
+                        </div>
+                        {active && stageMessage && (
+                          <div className="text-[11px] text-[#656565] mt-0.5">{stageMessage}</div>
+                        )}
+                        {s === 'retrieval' && done && clauseCount > 0 && (
+                          <div className="text-[11px] text-[#656565] mt-0.5">{clauseCount} clauses retrieved</div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Intent summary */}
+          {intent && (
+            <div className="bg-white border border-[#0C0C0C]">
+              <div className="px-5 py-3 border-b border-[#0C0C0C]">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#656565]">Parsed Intent</span>
+              </div>
+              <div className="divide-y divide-[#EBEBEB]">
+                {(
+                  [
+                    ['Type', intent.contractType.replace('_', ' ')],
+                    ['Client', intent.parties.client.name],
+                    ['Contractor', intent.parties.contractor.name],
+                    ['Jurisdiction', intent.jurisdiction],
+                    intent.paymentAmount
+                      ? ['Payment', `${intent.paymentCurrency} ${intent.paymentAmount.toLocaleString()}`]
+                      : null,
+                    intent.paymentTerms ? ['Terms', intent.paymentTerms] : null,
+                    intent.duration ? ['Duration', intent.duration] : null,
+                    ['IP', intent.ipOwnership],
+                  ] as ([string, string] | null)[]
+                )
+                  .filter((x): x is [string, string] => x !== null)
+                  .map(([label, value]) => (
+                    <div key={label} className="px-5 py-2.5 grid grid-cols-[100px_1fr] gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">{label}</span>
+                      <span className="text-[13px] font-semibold text-[#0C0C0C] capitalize">{value}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Risk analysis */}
+          {risk && (
+            <div className="bg-white border border-[#0C0C0C]">
+              <div className="bg-[#0C0C0C] px-5 py-3 flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">Risk Analysis</span>
+                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 ${
+                  risk.overallRisk === 'high' ? 'bg-red-500 text-white' :
+                  risk.overallRisk === 'medium' ? 'bg-amber-400 text-black' :
+                  'bg-green-500 text-white'
+                }`}>
+                  {risk.overallRisk} risk
+                </span>
+              </div>
+
+              {/* Scores */}
+              <div className="grid grid-cols-2 divide-x divide-[#EBEBEB] border-b border-[#EBEBEB]">
+                {[
+                  { label: 'Fairness', score: risk.fairnessScore },
+                  { label: 'Health', score: risk.healthScore },
+                ].map(({ label, score }) => (
+                  <div key={label} className="px-5 py-4">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#656565] mb-2">{label}</div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-1.5 bg-[#EBEBEB]">
+                        <div
+                          className="h-full bg-[#0C0C0C]"
+                          style={{ width: `${score * 10}%` }}
+                        />
+                      </div>
+                      <span className="text-[15px] font-black">{score}<span className="text-[10px] text-[#656565] font-semibold">/10</span></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Summary */}
+              <div className="px-5 py-4 border-b border-[#EBEBEB]">
+                <p className="text-[13px] text-[#656565] leading-relaxed">{risk.summary}</p>
+              </div>
+
+              {/* Flagged clauses */}
+              {risk.flaggedClauses.length > 0 && (
+                <div>
+                  <div className="px-5 py-2 border-b border-[#EBEBEB]">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">Flagged Clauses</span>
+                  </div>
+                  <div className="divide-y divide-[#EBEBEB]">
+                    {risk.flaggedClauses.map((fc, i) => (
+                      <div key={i} className={`px-5 py-3 border-l-4 ${
+                        fc.riskLevel === 'high' ? 'border-l-red-500' :
+                        fc.riskLevel === 'medium' ? 'border-l-amber-400' :
+                        'border-l-green-500'
+                      }`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[11px] font-black text-[#0C0C0C]">Clause {fc.clauseRef}</span>
+                          <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 border ${RISK_COLOURS[fc.riskLevel]}`}>
+                            {fc.riskLevel}
+                          </span>
+                        </div>
+                        <p className="text-[12px] text-[#656565] leading-relaxed mb-1">{fc.issue}</p>
+                        <p className="text-[11px] text-[#0C0C0C] font-semibold">→ {fc.suggestion}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Missing clauses */}
+              {risk.missingClauses.length > 0 && (
+                <div className="px-5 py-3 bg-[#F8F8F8] border-t border-[#EBEBEB]">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#656565] mb-2">Missing</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {risk.missingClauses.map((m) => (
+                      <span key={m} className="text-[10px] font-semibold px-2 py-1 border border-[#DADADA] text-[#656565]">{m}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div className="border border-red-300 bg-red-50 px-5 py-4 text-[13px] text-red-700 font-semibold">
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* Right panel — contract output */}
+        <div className="bg-white border border-[#0C0C0C] shadow-[8px_8px_0_#D0000A] flex flex-col min-h-[600px]">
+          <div className="bg-[#D0000A] px-6 py-4 flex items-center justify-between flex-shrink-0">
+            <span className="text-[12px] font-bold uppercase tracking-widest text-white/80">
+              {contract ? intent?.contractType.replace('_', ' ') ?? 'Contract' : 'Contract Preview'}
+            </span>
+            {contract && (
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 bg-white text-[#D0000A]">
+                  AI Generated
+                </span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(contract)}
+                  className="text-[10px] font-black uppercase tracking-wider px-3 py-1 border border-white/40 text-white hover:bg-white/10 transition-colors"
+                >
+                  Copy
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div
+            ref={contractRef}
+            className="flex-1 overflow-y-auto"
+          >
+            {!contract && stage === 'idle' && (
+              <div className="h-full flex items-center justify-center text-center p-8">
+                <div>
+                  <div className="text-6xl font-black text-[#0C0C0C]/5 mb-4">clausifai.</div>
+                  <p className="text-[14px] text-[#ADADAD] font-medium">
+                    Describe your contract on the left to get started.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {(contract || isRunning) && (
+              <div className="px-16 py-12 max-w-[860px] mx-auto">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h1: ({ children }) => (
+                      <h1 className="text-[22px] font-black text-[#0C0C0C] text-center tracking-tight mb-1 mt-0 uppercase">
+                        {children}
+                      </h1>
+                    ),
+                    h2: ({ children }) => (
+                      <h2 className="text-[13px] font-black text-[#0C0C0C] uppercase tracking-widest mt-10 mb-3 pb-2 border-b border-[#DADADA]">
+                        {children}
+                      </h2>
+                    ),
+                    h3: ({ children }) => (
+                      <h3 className="text-[14px] font-black text-[#0C0C0C] mt-6 mb-2">
+                        {children}
+                      </h3>
+                    ),
+                    p: ({ children }) => (
+                      <p className="text-[14px] text-[#1C1C1C] leading-[1.85] mb-4 font-normal">
+                        {children}
+                      </p>
+                    ),
+                    strong: ({ children }) => (
+                      <strong className="font-black text-[#0C0C0C]">{children}</strong>
+                    ),
+                    ol: ({ children }) => (
+                      <ol className="list-none mb-4 space-y-2">{children}</ol>
+                    ),
+                    ul: ({ children }) => (
+                      <ul className="list-none mb-4 space-y-2">{children}</ul>
+                    ),
+                    li: ({ children }) => (
+                      <li className="text-[14px] text-[#1C1C1C] leading-[1.85] pl-4 border-l-2 border-[#EBEBEB]">
+                        {children}
+                      </li>
+                    ),
+                    hr: () => <hr className="border-[#DADADA] my-8" />,
+                    blockquote: ({ children }) => (
+                      <blockquote className="border-l-4 border-[#D0000A] bg-[#FFF5F5] pl-4 py-2 my-4 text-[13px] text-[#656565] italic">
+                        {children}
+                      </blockquote>
+                    ),
+                    table: ({ children }) => (
+                      <table className="w-full border-collapse text-[13px] mb-6">{children}</table>
+                    ),
+                    th: ({ children }) => (
+                      <th className="text-left font-black text-[10px] uppercase tracking-wider text-[#656565] border-b border-[#DADADA] pb-2 pr-4">
+                        {children}
+                      </th>
+                    ),
+                    td: ({ children }) => (
+                      <td className="text-[#1C1C1C] border-b border-[#F0F0F0] py-2 pr-4">
+                        {children}
+                      </td>
+                    ),
+                  }}
+                >
+                  {contract}
+                </ReactMarkdown>
+                {stage === 'generation' && (
+                  <span className="inline-block w-2 h-5 bg-[#D0000A] ml-0.5 animate-pulse align-middle" />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
