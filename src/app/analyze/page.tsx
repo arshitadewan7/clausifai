@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, DragEvent } from "react";
-import type { TextItem } from 'pdfjs-dist/types/src/display/api';
+import type { TextItem } from "pdfjs-dist/types/src/display/api";
 
 // --- Types ---
 interface ClauseDetail {
@@ -94,15 +94,56 @@ async function extractTextFromFile(file: File): Promise<string> {
   throw new Error("Unsupported file type.");
 }
 
+const SCORE_TOOLTIPS: Record<string, string> = {
+  "Risk Score": "How safe is this contract for you to sign? Measures whether individual clauses expose you to financial, legal, or operational risk as the contractor.",
+  "Fairness Score": "How balanced are the obligations between both parties? A low score means the contract places most of the burden or risk on you, not the client.",
+  "Health Score": "How complete and well-drafted is this contract? Measures whether all key clauses are present and clearly defined — regardless of whether they favour you.",
+};
+
 // --- Sub-components ---
 function ScoreBar({ label, score }: { label: string; score: number }) {
+  const [hovered, setHovered] = useState(false);
   const color = scoreBarColor(score);
+  const tooltip = SCORE_TOOLTIPS[label];
+
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#aaa" }}>
-          {label}
-        </span>
+        <div
+          style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 6, cursor: "default" }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#aaa" }}>
+            {label}
+          </span>
+          <span style={{
+            fontSize: 9, fontWeight: 800, color: "#555",
+            border: "1px solid #444", borderRadius: "50%",
+            width: 13, height: 13, display: "inline-flex", alignItems: "center", justifyContent: "center",
+            lineHeight: 1, flexShrink: 0,
+          }}>?</span>
+
+          {hovered && tooltip && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 50,
+              background: "#1a1a1a", border: "1px solid #333",
+              padding: "10px 13px", borderRadius: 4,
+              width: 260, boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            }}>
+              <p style={{ fontSize: 12, color: "#ccc", margin: 0, lineHeight: 1.6 }}>
+                {tooltip}
+              </p>
+              <div style={{
+                position: "absolute", top: -5, left: 10,
+                width: 8, height: 8, background: "#1a1a1a",
+                border: "1px solid #333", borderBottom: "none", borderRight: "none",
+                transform: "rotate(45deg)",
+              }} />
+            </div>
+          )}
+        </div>
+
         <span style={{ fontSize: 13, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>
           {score}<span style={{ fontSize: 10, fontWeight: 400, color: "#555" }}>/100</span>
         </span>
@@ -231,6 +272,44 @@ export default function AnalyzePage() {
     }
   }
 
+  const [clauseInfoOpen, setClauseInfoOpen] = useState(false);
+  const [expandedClause, setExpandedClause] = useState<string | null>(null);
+
+  const CLAUSE_INFO: Record<string, { short: string; long: string }> = {
+    "Payment Terms": {
+      short: "How and when you get paid.",
+      long: "Covers the payment amount or rate, due dates, invoicing process, and late payment penalties. Vague payment terms are one of the most common ways freelancers lose money — if the contract doesn't specify when payment is due or what happens if it's late, you have very little recourse.",
+    },
+    "Termination Clause": {
+      short: "How either party can end the contract.",
+      long: "Defines the notice period required to end the agreement and what happens to payment for work already completed. Without this, a client could stop the project instantly and argue they owe you nothing. Look for clauses that let both parties terminate with reasonable notice and guarantee payment for completed work.",
+    },
+    "IP Ownership": {
+      short: "Who owns the work you create.",
+      long: "Determines whether intellectual property (designs, code, content, etc.) transfers to the client and when. Ideally, IP should only transfer after full payment is received. Contracts that transfer IP on signing or on delivery — regardless of payment — leave you with no leverage if the client doesn't pay.",
+    },
+    "Confidentiality": {
+      short: "What information you must keep private.",
+      long: "Outlines what counts as confidential and for how long you're bound. One-sided confidentiality (only you are bound, not the client) or overly broad clauses with no time limit can restrict your ability to discuss your work or take similar clients in the future. Mutual confidentiality is the gold standard.",
+    },
+    "Liability": {
+      short: "Who is responsible if something goes wrong.",
+      long: "Caps how much you can be held financially responsible for errors, delays, or disputes. Without a liability cap, you could theoretically be sued for amounts far exceeding what you were paid. A good clause limits your liability to the value of the contract and excludes indirect or consequential damages.",
+    },
+    "Dispute Resolution": {
+      short: "How disagreements are handled.",
+      long: "Defines the process if you and the client can't agree — typically escalating from negotiation to mediation to arbitration or court. Contracts that jump straight to litigation, or specify overseas courts, are costly and impractical for Australian freelancers. Look for Australian jurisdiction and a mediation step.",
+    },
+    "Scope of Work": {
+      short: "What you are and aren't required to deliver.",
+      long: "Defines the deliverables, timelines, and revision limits. Vague scope is the leading cause of scope creep — where clients keep requesting more work beyond what was agreed. A good scope clause specifies exactly what is included, how many revisions are allowed, and how additional work is requested and priced.",
+    },
+    "Jurisdiction": {
+      short: "Which country's laws govern the contract.",
+      long: "Specifies which legal system applies if there's a dispute. For Australian contractors, this should always be an Australian state or territory. A contract governed by US or UK law may look identical on the surface but requires you to navigate a foreign legal system — which is expensive and impractical.",
+    },
+  };
+
   const isDisabled = loading || extracting || !contractText.trim();
 
   return (
@@ -269,6 +348,78 @@ export default function AnalyzePage() {
           <p style={{ fontSize: 14, color: "#777", margin: 0, lineHeight: 1.6 }}>
             Paste or upload any contract. Get an instant score on risk, fairness, and health.
           </p>
+        </div>
+
+        {/* Collapsible clause info */}
+        <div style={{ marginBottom: 28 }}>
+          <button
+            onClick={() => setClauseInfoOpen(!clauseInfoOpen)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              width: "100%", padding: "11px 16px",
+              background: "#fff", border: "1px solid #ddd",
+              cursor: "pointer", fontFamily: "inherit",
+              borderBottom: clauseInfoOpen ? "1px solid #eee" : "1px solid #ddd",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "#111" }}>
+                What we check
+              </span>
+              <span style={{ fontSize: 10, color: "#bbb", fontWeight: 500 }}>8 clause categories</span>
+            </div>
+            <span style={{
+              fontSize: 12, color: "#999",
+              transform: clauseInfoOpen ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 0.2s",
+              display: "inline-block",
+            }}>▼</span>
+          </button>
+
+          {clauseInfoOpen && (
+            <div style={{ background: "#fff", border: "1px solid #ddd", borderTop: "none" }}>
+              {Object.entries(CLAUSE_INFO).map(([name, info]) => (
+                <div
+                  key={name}
+                  style={{ borderBottom: "1px solid #f3f3f3" }}
+                >
+                  <button
+                    onClick={() => setExpandedClause(expandedClause === name ? null : name)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      width: "100%", padding: "11px 16px",
+                      background: "transparent", border: "none",
+                      cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#D0021B", flexShrink: 0, display: "inline-block" }} />
+                      <div>
+                        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: "#111" }}>
+                          {name}
+                        </span>
+                        <span style={{ fontSize: 12, color: "#888", marginLeft: 10, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+                          {info.short}
+                        </span>
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 10, color: "#ccc", flexShrink: 0, marginLeft: 12,
+                      transform: expandedClause === name ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s", display: "inline-block",
+                    }}>▼</span>
+                  </button>
+                  {expandedClause === name && (
+                    <div style={{ padding: "0 16px 14px 34px" }}>
+                      <p style={{ fontSize: 13, color: "#555", lineHeight: 1.65, margin: 0 }}>
+                        {info.long}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Mode toggle */}
