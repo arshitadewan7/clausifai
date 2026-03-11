@@ -880,7 +880,7 @@ async function getWaitlistCount() {
     
     if (error) throw error
     
-    n = 143 + (count || 0)
+    n = 30 + (count || 0)
     document.querySelectorAll('#h-count,#cta-count')
       .forEach(e => { if (e) e.textContent = n.toLocaleString() + ' people' })
   } catch (err) {
