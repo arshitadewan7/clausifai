@@ -1,18 +1,35 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ContractIntent } from '@/lib/pipeline/intent-parser'
 import type { RiskAnalysis } from '@/lib/pipeline/risk-analyser'
+import type { GroundingResult } from '@/lib/pipeline/clause-grounding-validator'
+import type { ClauseExplanation } from '@/lib/pipeline/plain-english'
+import SmartContractForm from '@/components/contract/SmartContractForm'
+import FairnessScoreWidget from '@/components/contract/FairnessScoreWidget'
+import PlainEnglishPanel from '@/components/contract/PlainEnglishPanel'
+import SendForSignatureModal from '@/components/contract/SendForSignatureModal'
 
-type Stage = 'idle' | 'parsing' | 'retrieval' | 'generation' | 'risk' | 'complete' | 'error'
+type Stage =
+  | 'idle'
+  | 'parsing'
+  | 'retrieval'
+  | 'generation'
+  | 'grounding'
+  | 'risk'
+  | 'plain_english'
+  | 'complete'
+  | 'error'
 
 const STAGE_LABELS: Record<string, string> = {
   parsing: 'Understanding your request',
   retrieval: 'Retrieving relevant clauses',
   generation: 'Drafting your contract',
+  grounding: 'Verifying clause grounding',
   risk: 'Analysing risks',
+  plain_english: 'Writing plain English summaries',
 }
 
 const RISK_COLOURS: Record<string, string> = {
@@ -21,30 +38,56 @@ const RISK_COLOURS: Record<string, string> = {
   low: 'text-green-600 bg-green-50 border-green-200',
 }
 
+type ProfileShape = {
+  full_name?: string
+  business_name?: string
+  country?: string
+  abn?: string
+  gstin?: string
+  pan?: string
+  jurisdiction?: string
+} | null
+
 export default function ContractBuilder() {
-  const [prompt, setPrompt] = useState('')
   const [stage, setStage] = useState<Stage>('idle')
   const [stageMessage, setStageMessage] = useState('')
   const [intent, setIntent] = useState<ContractIntent | null>(null)
   const [contract, setContract] = useState('')
   const [clauseCount, setClauseCount] = useState(0)
+  const [grounding, setGrounding] = useState<GroundingResult | null>(null)
   const [risk, setRisk] = useState<RiskAnalysis | null>(null)
+  const [plainEnglish, setPlainEnglish] = useState<ClauseExplanation[]>([])
   const [error, setError] = useState('')
+  const [highlightedClause, setHighlightedClause] = useState<string | null>(null)
+  const [showSignModal, setShowSignModal] = useState(false)
+  const [profile, setProfile] = useState<ProfileShape>(null)
   const contractRef = useRef<HTMLDivElement>(null)
 
-  async function generate() {
-    if (!prompt.trim()) return
+  // Load profile from localStorage (for unauthenticated users) or Supabase
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('clausifai_profile')
+      if (raw) setProfile(JSON.parse(raw))
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  async function generate(overridePrompt: string) {
+    if (!overridePrompt.trim()) return
     setStage('parsing')
     setStageMessage('Understanding your request...')
     setIntent(null)
     setContract('')
+    setGrounding(null)
     setRisk(null)
+    setPlainEnglish([])
     setError('')
 
     const res = await fetch('/api/contracts/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt: overridePrompt }),
     })
 
     const reader = res.body!.getReader()
@@ -75,12 +118,19 @@ export default function ContractBuilder() {
             setContract((prev) => {
               const updated = prev + event.content
               requestAnimationFrame(() =>
-                contractRef.current?.scrollTo({ top: contractRef.current.scrollHeight, behavior: 'smooth' }),
+                contractRef.current?.scrollTo({
+                  top: contractRef.current.scrollHeight,
+                  behavior: 'smooth',
+                }),
               )
               return updated
             })
+          } else if (event.type === 'grounding') {
+            setGrounding(event.data)
           } else if (event.type === 'risk') {
             setRisk(event.data)
+          } else if (event.type === 'plain_english') {
+            setPlainEnglish(event.data)
           } else if (event.type === 'complete') {
             setStage('complete')
           } else if (event.type === 'error') {
@@ -95,7 +145,7 @@ export default function ContractBuilder() {
   }
 
   const isRunning = stage !== 'idle' && stage !== 'complete' && stage !== 'error'
-  const stages = ['parsing', 'retrieval', 'generation', 'risk'] as const
+  const stages = ['parsing', 'retrieval', 'generation', 'grounding', 'risk', 'plain_english'] as const
   const currentStageIndex = stages.indexOf(stage as typeof stages[number])
 
   return (
@@ -111,32 +161,12 @@ export default function ContractBuilder() {
       <div className="max-w-7xl mx-auto px-8 py-10 grid grid-cols-1 xl:grid-cols-[480px_1fr] gap-8">
         {/* Left panel */}
         <div className="flex flex-col gap-6">
-          {/* Prompt */}
-          <div className="bg-white border border-[#0C0C0C] shadow-[5px_5px_0_#0C0C0C]">
-            <div className="bg-[#0C0C0C] px-5 py-3 flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-[#D0000A] animate-pulse" />
-              <span className="text-[11px] font-bold uppercase tracking-widest text-white/60">
-                Describe your contract
-              </span>
-            </div>
-            <div className="p-5">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                disabled={isRunning}
-                rows={6}
-                placeholder={`e.g. "I need a freelance service agreement between Vertex Studio and Sarah Chen, a UI designer, for $8,500 AUD over 3 months. Payment due within 14 days. Client owns all IP. Based in Melbourne, Victoria."`}
-                className="w-full resize-none text-[15px] font-medium text-[#0C0C0C] bg-transparent outline-none placeholder:text-[#ADADAD] leading-relaxed"
-              />
-              <button
-                onClick={generate}
-                disabled={isRunning || !prompt.trim()}
-                className="mt-4 w-full bg-[#D0000A] text-white font-black text-[12px] uppercase tracking-widest py-4 border border-[#0C0C0C] shadow-[3px_3px_0_#0C0C0C] hover:bg-[#A80008] hover:shadow-[4px_4px_0_#0C0C0C] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-              >
-                {isRunning ? 'Generating...' : 'Generate Contract →'}
-              </button>
-            </div>
-          </div>
+          {/* Smart form */}
+          <SmartContractForm
+            onSubmit={generate}
+            disabled={isRunning}
+            initialProfile={profile}
+          />
 
           {/* Pipeline stages */}
           {stage !== 'idle' && (
@@ -162,14 +192,20 @@ export default function ContractBuilder() {
                         {done ? '✓' : i + 1}
                       </div>
                       <div>
-                        <div className={`text-[13px] font-800 ${active ? 'text-[#D0000A]' : done ? 'text-[#0C0C0C]' : 'text-[#ADADAD]'}`}>
+                        <div
+                          className={`text-[13px] font-bold ${
+                            active ? 'text-[#D0000A]' : done ? 'text-[#0C0C0C]' : 'text-[#ADADAD]'
+                          }`}
+                        >
                           {STAGE_LABELS[s]}
                         </div>
                         {active && stageMessage && (
                           <div className="text-[11px] text-[#656565] mt-0.5">{stageMessage}</div>
                         )}
                         {s === 'retrieval' && done && clauseCount > 0 && (
-                          <div className="text-[11px] text-[#656565] mt-0.5">{clauseCount} clauses retrieved</div>
+                          <div className="text-[11px] text-[#656565] mt-0.5">
+                            {clauseCount} clauses retrieved
+                          </div>
                         )}
                       </div>
                     </div>
@@ -183,7 +219,9 @@ export default function ContractBuilder() {
           {intent && (
             <div className="bg-white border border-[#0C0C0C]">
               <div className="px-5 py-3 border-b border-[#0C0C0C]">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[#656565]">Parsed Intent</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#656565]">
+                  Parsed Intent
+                </span>
               </div>
               <div className="divide-y divide-[#EBEBEB]">
                 {(
@@ -203,70 +241,168 @@ export default function ContractBuilder() {
                   .filter((x): x is [string, string] => x !== null)
                   .map(([label, value]) => (
                     <div key={label} className="px-5 py-2.5 grid grid-cols-[100px_1fr] gap-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">{label}</span>
-                      <span className="text-[13px] font-semibold text-[#0C0C0C] capitalize">{value}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">
+                        {label}
+                      </span>
+                      <span className="text-[13px] font-semibold text-[#0C0C0C] capitalize">
+                        {value}
+                      </span>
                     </div>
                   ))}
               </div>
             </div>
           )}
 
+          {/* Grounding panel */}
+          {grounding && (
+            <div className="bg-white border border-[#0C0C0C]">
+              <div className="bg-[#0C0C0C] px-5 py-3 flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">
+                  Clause Grounding
+                </span>
+                <span
+                  className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 ${
+                    grounding.verdict === 'clean'
+                      ? 'bg-green-500 text-white'
+                      : grounding.verdict === 'minor_issues'
+                      ? 'bg-amber-400 text-black'
+                      : 'bg-red-500 text-white'
+                  }`}
+                >
+                  {grounding.verdict === 'clean'
+                    ? 'Fully Grounded'
+                    : grounding.verdict === 'minor_issues'
+                    ? 'Minor Issues'
+                    : 'Major Issues'}
+                </span>
+              </div>
+              <div className="px-5 py-4 border-b border-[#EBEBEB]">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#656565] mb-2">
+                  Groundedness Score
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-1.5 bg-[#EBEBEB]">
+                    <div
+                      className={`h-full ${
+                        grounding.groundednessScore >= 90
+                          ? 'bg-green-500'
+                          : grounding.groundednessScore >= 70
+                          ? 'bg-amber-400'
+                          : 'bg-red-500'
+                      }`}
+                      style={{ width: `${grounding.groundednessScore}%` }}
+                    />
+                  </div>
+                  <span className="text-[15px] font-black">
+                    {grounding.groundednessScore}
+                    <span className="text-[10px] text-[#656565] font-semibold">%</span>
+                  </span>
+                </div>
+              </div>
+              <div className="px-5 py-3 border-b border-[#EBEBEB]">
+                <p className="text-[12px] text-[#656565] leading-relaxed">{grounding.summary}</p>
+              </div>
+              {grounding.hallucinatedSections.length > 0 ? (
+                <div>
+                  <div className="px-5 py-2 border-b border-[#EBEBEB]">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-red-600">
+                      Unverified Provisions
+                    </span>
+                  </div>
+                  <div className="divide-y divide-[#EBEBEB]">
+                    {grounding.hallucinatedSections.map((h, i) => (
+                      <div key={i} className="px-5 py-3 border-l-4 border-l-red-500">
+                        <div className="text-[11px] font-black text-[#0C0C0C] mb-1">{h.section}</div>
+                        <p className="text-[11px] text-[#656565] leading-relaxed mb-1">{h.reason}</p>
+                        {h.content && (
+                          <p className="text-[10px] text-[#ADADAD] font-mono truncate">{h.content}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="px-5 py-3 bg-green-50 flex items-center gap-2">
+                  <span className="text-green-600 text-[11px] font-bold">✓</span>
+                  <span className="text-[11px] text-green-700 font-semibold">
+                    All provisions verified against legal database
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Fairness Score widget — extracted, prominent */}
+          {risk && (
+            <FairnessScoreWidget score={risk.fairnessScore} summary={risk.summary} />
+          )}
+
           {/* Risk analysis */}
           {risk && (
             <div className="bg-white border border-[#0C0C0C]">
               <div className="bg-[#0C0C0C] px-5 py-3 flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">Risk Analysis</span>
-                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 ${
-                  risk.overallRisk === 'high' ? 'bg-red-500 text-white' :
-                  risk.overallRisk === 'medium' ? 'bg-amber-400 text-black' :
-                  'bg-green-500 text-white'
-                }`}>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">
+                  Risk Analysis
+                </span>
+                <span
+                  className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 ${
+                    risk.overallRisk === 'high'
+                      ? 'bg-red-500 text-white'
+                      : risk.overallRisk === 'medium'
+                      ? 'bg-amber-400 text-black'
+                      : 'bg-green-500 text-white'
+                  }`}
+                >
                   {risk.overallRisk} risk
                 </span>
               </div>
 
-              {/* Scores */}
-              <div className="grid grid-cols-2 divide-x divide-[#EBEBEB] border-b border-[#EBEBEB]">
-                {[
-                  { label: 'Fairness', score: risk.fairnessScore },
-                  { label: 'Health', score: risk.healthScore },
-                ].map(({ label, score }) => (
-                  <div key={label} className="px-5 py-4">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-[#656565] mb-2">{label}</div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-1.5 bg-[#EBEBEB]">
-                        <div
-                          className="h-full bg-[#0C0C0C]"
-                          style={{ width: `${score * 10}%` }}
-                        />
-                      </div>
-                      <span className="text-[15px] font-black">{score}<span className="text-[10px] text-[#656565] font-semibold">/10</span></span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Summary */}
+              {/* Scores (health only — fairness is now in FairnessScoreWidget) */}
               <div className="px-5 py-4 border-b border-[#EBEBEB]">
-                <p className="text-[13px] text-[#656565] leading-relaxed">{risk.summary}</p>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#656565] mb-2">
+                  Health
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-1.5 bg-[#EBEBEB]">
+                    <div
+                      className="h-full bg-[#0C0C0C]"
+                      style={{ width: `${risk.healthScore * 10}%` }}
+                    />
+                  </div>
+                  <span className="text-[15px] font-black">
+                    {risk.healthScore}
+                    <span className="text-[10px] text-[#656565] font-semibold">/10</span>
+                  </span>
+                </div>
               </div>
 
               {/* Flagged clauses */}
               {risk.flaggedClauses.length > 0 && (
                 <div>
                   <div className="px-5 py-2 border-b border-[#EBEBEB]">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">Flagged Clauses</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">
+                      Flagged Clauses
+                    </span>
                   </div>
                   <div className="divide-y divide-[#EBEBEB]">
                     {risk.flaggedClauses.map((fc, i) => (
-                      <div key={i} className={`px-5 py-3 border-l-4 ${
-                        fc.riskLevel === 'high' ? 'border-l-red-500' :
-                        fc.riskLevel === 'medium' ? 'border-l-amber-400' :
-                        'border-l-green-500'
-                      }`}>
+                      <div
+                        key={i}
+                        className={`px-5 py-3 border-l-4 ${
+                          fc.riskLevel === 'high'
+                            ? 'border-l-red-500'
+                            : fc.riskLevel === 'medium'
+                            ? 'border-l-amber-400'
+                            : 'border-l-green-500'
+                        }`}
+                      >
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[11px] font-black text-[#0C0C0C]">Clause {fc.clauseRef}</span>
-                          <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 border ${RISK_COLOURS[fc.riskLevel]}`}>
+                          <span className="text-[11px] font-black text-[#0C0C0C]">
+                            Clause {fc.clauseRef}
+                          </span>
+                          <span
+                            className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 border ${RISK_COLOURS[fc.riskLevel]}`}
+                          >
                             {fc.riskLevel}
                           </span>
                         </div>
@@ -281,15 +417,30 @@ export default function ContractBuilder() {
               {/* Missing clauses */}
               {risk.missingClauses.length > 0 && (
                 <div className="px-5 py-3 bg-[#F8F8F8] border-t border-[#EBEBEB]">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#656565] mb-2">Missing</div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[#656565] mb-2">
+                    Missing
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {risk.missingClauses.map((m) => (
-                      <span key={m} className="text-[10px] font-semibold px-2 py-1 border border-[#DADADA] text-[#656565]">{m}</span>
+                      <span
+                        key={m}
+                        className="text-[10px] font-semibold px-2 py-1 border border-[#DADADA] text-[#656565]"
+                      >
+                        {m}
+                      </span>
                     ))}
                   </div>
                 </div>
               )}
             </div>
+          )}
+
+          {/* Plain English panel */}
+          {plainEnglish.length > 0 && (
+            <PlainEnglishPanel
+              explanations={plainEnglish}
+              onClauseHover={setHighlightedClause}
+            />
           )}
 
           {error && (
@@ -300,7 +451,11 @@ export default function ContractBuilder() {
         </div>
 
         {/* Right panel — contract output */}
-        <div className="bg-white border border-[#0C0C0C] shadow-[8px_8px_0_#D0000A] flex flex-col min-h-[600px]">
+        <div
+          className={`bg-white border border-[#0C0C0C] shadow-[8px_8px_0_#D0000A] flex flex-col min-h-[600px] transition-all ${
+            highlightedClause ? 'ring-2 ring-amber-300' : ''
+          }`}
+        >
           <div className="bg-[#D0000A] px-6 py-4 flex items-center justify-between flex-shrink-0">
             <span className="text-[12px] font-bold uppercase tracking-widest text-white/80">
               {contract ? intent?.contractType.replace('_', ' ') ?? 'Contract' : 'Contract Preview'}
@@ -316,20 +471,25 @@ export default function ContractBuilder() {
                 >
                   Copy
                 </button>
+                {stage === 'complete' && (
+                  <button
+                    onClick={() => setShowSignModal(true)}
+                    className="text-[10px] font-black uppercase tracking-wider px-3 py-1 bg-white text-[#D0000A] border border-white hover:bg-white/90 transition-colors shadow-[2px_2px_0_#0C0C0C]"
+                  >
+                    Send for Signature →
+                  </button>
+                )}
               </div>
             )}
           </div>
 
-          <div
-            ref={contractRef}
-            className="flex-1 overflow-y-auto"
-          >
+          <div ref={contractRef} className="flex-1 overflow-y-auto">
             {!contract && stage === 'idle' && (
               <div className="h-full flex items-center justify-center text-center p-8">
                 <div>
                   <div className="text-6xl font-black text-[#0C0C0C]/5 mb-4">clausifai.</div>
                   <p className="text-[14px] text-[#ADADAD] font-medium">
-                    Describe your contract on the left to get started.
+                    Fill in the form on the left to get started.
                   </p>
                 </div>
               </div>
@@ -345,11 +505,25 @@ export default function ContractBuilder() {
                         {children}
                       </h1>
                     ),
-                    h2: ({ children }) => (
-                      <h2 className="text-[13px] font-black text-[#0C0C0C] uppercase tracking-widest mt-10 mb-3 pb-2 border-b border-[#DADADA]">
-                        {children}
-                      </h2>
-                    ),
+                    h2: ({ node, children, ...props }) => {
+                      const text = typeof children === 'string' ? children : ''
+                      const isHighlighted =
+                        highlightedClause &&
+                        text.toLowerCase().includes(highlightedClause.toLowerCase())
+                      return (
+                        <h2
+                          {...props}
+                          data-clause={text}
+                          className={`text-[13px] font-black text-[#0C0C0C] uppercase tracking-widest mt-10 mb-3 pb-2 border-b transition-colors ${
+                            isHighlighted
+                              ? 'border-b-amber-400 bg-amber-50 px-2 -mx-2'
+                              : 'border-[#DADADA]'
+                          }`}
+                        >
+                          {children}
+                        </h2>
+                      )
+                    },
                     h3: ({ children }) => (
                       <h3 className="text-[14px] font-black text-[#0C0C0C] mt-6 mb-2">
                         {children}
@@ -405,6 +579,16 @@ export default function ContractBuilder() {
           </div>
         </div>
       </div>
+
+      {/* Send for Signature modal */}
+      {showSignModal && (
+        <SendForSignatureModal
+          contract={contract}
+          intent={intent}
+          risk={risk}
+          onClose={() => setShowSignModal(false)}
+        />
+      )}
     </div>
   )
 }

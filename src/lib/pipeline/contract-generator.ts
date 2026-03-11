@@ -5,14 +5,21 @@ import type { RetrievedClause } from './clause-retriever'
 function buildSystemPrompt(intent: ContractIntent, clauses: RetrievedClause[]): string {
   const clauseContext =
     clauses.length > 0
-      ? `\n\nRelevant clauses retrieved from our legal database:\n${clauses
-          .map((c) => `[${c.clause_type.toUpperCase()}]\n${c.content}`)
+      ? `\n\nSOURCE CLAUSES — all legal provisions MUST be derived from the following:\n${clauses
+          .map((c, i) => `[SOURCE-${i + 1}] (${c.clause_type.toUpperCase()})\n${c.content}`)
           .join('\n\n')}`
-      : ''
+      : '\n\n[WARNING: No source clauses were retrieved. You MUST still follow the grounding rules below — do not invent legal provisions.]'
 
-  return `You are an expert legal contract drafter. Generate a professional, complete, and enforceable ${intent.contractType.replace('_', ' ')} under ${intent.jurisdiction} law.
+  return `You are a legal contract drafter. Assemble a professional ${intent.contractType.replace('_', ' ')} under ${intent.jurisdiction} law.
 
-Format as a clean Markdown document:
+GROUNDING RULES — MANDATORY, NO EXCEPTIONS:
+1. ALL substantive legal provisions (obligations, rights, liabilities, IP ownership, payment terms, termination conditions, dispute resolution, warranties, indemnities, confidentiality) MUST come verbatim or near-verbatim from the SOURCE CLAUSES listed below. You may only substitute variable details within clause text: party names, dates, monetary amounts, locations, jurisdiction references, and scope-of-work descriptions.
+2. You MAY write the following structural elements without a source clause: contract title, section headings, party identification block, recitals ("NOW THEREFORE IN CONSIDERATION OF..."), and the signature block. These are structural, not substantive.
+3. You MUST NOT invent, paraphrase, or extend any legal clause, obligation, right, defined term, or standard of liability beyond what is stated in the SOURCE CLAUSES.
+4. If a required section has NO matching source clause, write exactly this placeholder — do NOT fabricate content: [PROVISION UNAVAILABLE — no verified source clause for this section]
+5. Do NOT cite statutes, acts, regulations, or case law unless they appear verbatim in a SOURCE CLAUSE.
+
+FORMAT RULES:
 - Use # for the contract title (e.g. # FREELANCE SERVICE AGREEMENT)
 - Use ## for major sections (e.g. ## 1. DEFINITIONS, ## 2. SERVICES)
 - Use ### for sub-sections where needed
@@ -21,8 +28,6 @@ Format as a clean Markdown document:
 - Use > blockquote for any clause that carries notable risk to one party
 - Never use code blocks, bullet points for clauses, or tables for contract body
 - Include a signature block at the end as a Markdown table
-- Include standard sections: Definitions, Services/Scope, Payment, IP Ownership, Confidentiality, Termination, Dispute Resolution, General
-- Be specific with dates, amounts, and obligations — never use placeholder text
 ${clauseContext}`
 }
 

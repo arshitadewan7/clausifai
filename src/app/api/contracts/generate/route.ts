@@ -2,7 +2,9 @@ import { NextRequest } from 'next/server'
 import { parseIntent } from '@/lib/pipeline/intent-parser'
 import { retrieveClauses } from '@/lib/pipeline/clause-retriever'
 import { generateContract } from '@/lib/pipeline/contract-generator'
+import { validateGrounding } from '@/lib/pipeline/clause-grounding-validator'
 import { analyseRisk } from '@/lib/pipeline/risk-analyser'
+import { explainPlainEnglish } from '@/lib/pipeline/plain-english'
 
 function sseEvent(data: object): string {
   return `data: ${JSON.stringify(data)}\n\n`
@@ -40,10 +42,20 @@ export async function POST(req: NextRequest) {
           send({ type: 'token', content: token })
         })
 
-        // ── Stage 4: Risk Analysis ────────────────────────────────────────
+        // ── Stage 4: Grounding Validation ────────────────────────────────
+        send({ type: 'stage', stage: 'grounding', message: 'Verifying clause grounding...' })
+        const groundingResult = await validateGrounding(contractText || fullContract, clauses)
+        send({ type: 'grounding', data: groundingResult })
+
+        // ── Stage 5: Risk Analysis ────────────────────────────────────────
         send({ type: 'stage', stage: 'risk', message: 'Analysing risks...' })
         const riskAnalysis = await analyseRisk(contractText || fullContract)
         send({ type: 'risk', data: riskAnalysis })
+
+        // ── Stage 6: Plain English Explainer ─────────────────────────────
+        send({ type: 'stage', stage: 'plain_english', message: 'Writing plain English summaries...' })
+        const explanations = await explainPlainEnglish(contractText || fullContract)
+        send({ type: 'plain_english', data: explanations })
 
         // ── Done ──────────────────────────────────────────────────────────
         send({ type: 'complete' })
