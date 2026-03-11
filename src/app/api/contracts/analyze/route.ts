@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
+  apiKey: process.env. ANTHROPIC_API_KEY!,
 });
 
 const SYSTEM_PROMPT = `You are a specialist legal contract analysis engine for Clausifai, a platform that helps freelancers, startups, and small businesses in Australia understand and assess contracts.
