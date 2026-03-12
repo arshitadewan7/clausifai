@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { z } from 'zod'
 import { anthropic } from '@/lib/anthropic'
@@ -37,8 +36,8 @@ export const ContractIntentSchema = z.object({
 export type ContractIntent = z.infer<typeof ContractIntentSchema>
 
 export async function parseIntent(prompt: string): Promise<ContractIntent> {
-  const response = await anthropic.messages.parse({
-    model: 'claude-opus-4-6',
+  const response = await anthropic.beta.messages.parse({
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 2048,
     system: `You are a legal contract intent parser. Extract structured information from the user's natural language request for a contract. Be precise about jurisdiction, payment amounts, and party names. If information is missing, use sensible defaults for an Australian business context.`,
     messages: [{ role: 'user', content: prompt }],

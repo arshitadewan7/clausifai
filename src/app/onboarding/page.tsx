@@ -132,14 +132,10 @@ export default function OnboardingPage() {
   }
 
   async function verifyAbn() {
-    if (!validateABN(abn)) {
-      setAbnError('Invalid ABN — please check and try again')
-      return
-    }
     setAbnError('')
     const name = await lookupABN(abn)
     if (name) setAbnVerified(`Verified: ${name}`)
-    else setAbnVerified('Valid ABN format')
+    else setAbnVerified('ABN lookup complete')
   }
 
   function handleGstinChange(raw: string) {
@@ -160,7 +156,7 @@ export default function OnboardingPage() {
     if (!fullName.trim()) { setError('Please enter your full legal name'); return }
     if (!streetAddress.trim()) { setError('Please enter your street address'); return }
     if (!city.trim()) { setError('Please enter your city / suburb'); return }
-    if (country === 'AU' && abn && !validateABN(abn)) { setError('Please fix your ABN'); return }
+    // ABN validation is optional — any value is accepted
     if (country === 'IN' && gstin && !validateGSTIN(gstin)) { setError('Please fix your GSTIN'); return }
     if (country === 'IN' && pan && !validatePAN(pan)) { setError('Please fix your PAN'); return }
 
