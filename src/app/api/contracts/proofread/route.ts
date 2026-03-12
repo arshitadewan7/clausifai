@@ -34,7 +34,7 @@ Exact structure:
       "id": <integer, starting from 1>,
       "type": <"grammar" | "legal" | "missing" | "risky">,
       "severity": <"high" | "medium" | "low">,
-      "span": <the exact verbatim substring from the contract that contains the issue — must be a direct quote from the contract text, keep it short, 3–12 words>,
+      "span": <3–10 word phrase copied verbatim from the contract — must be findable via case-insensitive search>,
       "title": <short title for the issue, max 8 words>,
       "detail": <2–3 sentence explanation of why this is a problem, written in plain English for a non-lawyer Australian freelancer>,
       "suggestion": <specific suggested replacement text or clause, beginning with 'Replace with:' or 'Add:' or 'Remove:'>
@@ -43,14 +43,16 @@ Exact structure:
 }
 
 ## RULES
-- "span" must be an exact verbatim substring that appears in the contract — do not paraphrase or shorten it; it is used to locate and highlight the text
-- Every issue must have a span that can be found via exact string match in the contract
-- For "missing" type issues, use the nearest related clause heading or phrase as the span
+- "span" must be 3–10 words taken verbatim from the contract — copy the exact words as they appear
+- Before finalising each issue, verify the span exists in the contract by mentally searching for it — if you are not certain it exists verbatim, do not include the issue
+- Every span must be a specific phrase, not a heading, section number, or structural label
+- For "missing" type issues, use the nearest related clause heading that actually exists in the contract as the span
 - Issues must be ordered by severity: high first, then medium, then low
-- Never fabricate issues that are not genuinely present
+- Never fabricate issues — only flag problems that are genuinely present in the text provided
 - Grammar issues should only be flagged if they are real errors, not stylistic preferences
 - Risky terms must be assessed from the contractor/freelancer's perspective
-- All fields are required for every issue`;
+- All fields are required for every issue
+- If you are not confident about an issue, omit it entirely rather than guessing`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -99,6 +101,14 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Strip any issues whose span cannot be found in the contract text
+    result.issues = result.issues.filter((issue: { span: string }) => {
+      const found = contractText.toLowerCase().includes(issue.span.toLowerCase());
+      if (!found) console.warn(`Stripped hallucinated span: "${issue.span}"`);
+      return found;
+    });
+    result.issueCount = result.issues.length;
 
     return NextResponse.json({ success: true, result });
   } catch (error) {
