@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Country = 'AU' | 'IN'
@@ -17,6 +18,7 @@ type ContractTypeKey =
 type RateType = 'fixed' | 'hourly' | 'milestone'
 type PaymentTerms = 'net7' | 'net14' | 'net30'
 type IPOwner = 'you' | 'client' | 'shared'
+type DisputeResolution = 'courts' | 'arbitration' | 'mediation'
 
 interface ContractTypeOption {
   key: ContractTypeKey
@@ -30,14 +32,36 @@ interface FormData {
   country: Country
   contractType: ContractTypeKey | null
 
-  // Common
+  // Party A — from profile (not editable here)
   yourName: string
   yourBusiness: string
-  businessId: string
+  yourEntityType: string
+  yourBusinessId: string
+  yourAcn: string
+  yourAddress: string
+  yourEmail: string
+  yourPhone: string
+  yourSignatoryName: string
+  yourSignatoryTitle: string
+
+  // Party B — other party
   clientName: string
   clientBusiness: string
+  clientEntityType: string
+  clientBusinessId: string
+  clientStreetAddress: string
+  clientCity: string
+  clientState: string
+  clientPostcode: string
+  clientEmail: string
+  clientPhone: string
+  clientSignatoryName: string
+  clientSignatoryTitle: string
+
+  // Contract metadata
   jurisdiction: string
   effectiveDate: string
+  disputeResolution: DisputeResolution
 
   // NDA
   ndaPurpose: string
@@ -92,6 +116,18 @@ const COMPLEXITY_COLOURS: Record<string, string> = {
 const AU_JURISDICTIONS = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'ACT', 'TAS', 'NT']
 const IN_JURISDICTIONS = ['Maharashtra', 'Karnataka', 'Delhi', 'Tamil Nadu', 'Telangana', 'Gujarat', 'Other']
 
+const ENTITY_TYPE_LABELS: Record<string, string> = {
+  individual: 'Individual',
+  sole_trader: 'Sole Trader',
+  company: 'Company',
+  trust: 'Trust',
+  partnership: 'Partnership',
+  freelancer: 'Freelancer / Sole Trader',
+  small_business: 'Small Business',
+  startup: 'Startup',
+  other: 'Other',
+}
+
 function defaultJurisdiction(country: Country): string {
   return country === 'AU' ? 'NSW' : 'Maharashtra'
 }
@@ -101,72 +137,153 @@ function buildPrompt(f: FormData): string {
   const countryName = f.country === 'AU' ? 'Australia' : 'India'
   const currency = f.country === 'AU' ? 'AUD' : 'INR'
   const bizIdLabel = f.country === 'AU' ? 'ABN' : 'GSTIN/PAN'
-  const bizId = f.businessId ? `, ${bizIdLabel} ${f.businessId}` : ''
-  const yourParty = [f.yourName, f.yourBusiness ? `(${f.yourBusiness})` : '', bizId].filter(Boolean).join(' ')
-  const clientParty = [f.clientName, f.clientBusiness ? `(${f.clientBusiness})` : ''].filter(Boolean).join(' ')
+
+  // Build full party A string
+  const partyAIdParts: string[] = []
+  if (f.yourBusinessId) partyAIdParts.push(`${bizIdLabel} ${f.yourBusinessId}`)
+  if (f.yourAcn) partyAIdParts.push(`ACN ${f.yourAcn}`)
+  const partyAId = partyAIdParts.length ? ` (${partyAIdParts.join(', ')})` : ''
+  const partyAEntity = f.yourEntityType && f.yourEntityType !== 'individual' ? ` [${ENTITY_TYPE_LABELS[f.yourEntityType] ?? f.yourEntityType}]` : ''
+  const partyAName = f.yourBusiness
+    ? `${f.yourBusiness}${partyAId}${partyAEntity}, represented by ${f.yourSignatoryName || f.yourName}${f.yourSignatoryTitle ? ` (${f.yourSignatoryTitle})` : ''}`
+    : `${f.yourName}${partyAId}${partyAEntity}`
+  const partyAAddress = f.yourAddress ? `, of ${f.yourAddress}` : ''
+  const partyAContact = f.yourEmail ? `. Contact: ${f.yourEmail}${f.yourPhone ? `, ${f.yourPhone}` : ''}` : ''
+  const partyAFull = `${partyAName}${partyAAddress}${partyAContact}`
+
+  // Build full party B string
+  const partyBIdParts: string[] = []
+  if (f.clientBusinessId) partyBIdParts.push(`${bizIdLabel} ${f.clientBusinessId}`)
+  const partyBId = partyBIdParts.length ? ` (${partyBIdParts.join(', ')})` : ''
+  const partyBEntityLabel = f.clientEntityType ? ENTITY_TYPE_LABELS[f.clientEntityType] ?? f.clientEntityType : ''
+  const partyBEntity = partyBEntityLabel ? ` [${partyBEntityLabel}]` : ''
+  const partyBName = f.clientBusiness
+    ? `${f.clientBusiness}${partyBId}${partyBEntity}${f.clientSignatoryName ? `, represented by ${f.clientSignatoryName}${f.clientSignatoryTitle ? ` (${f.clientSignatoryTitle})` : ''}` : ''}`
+    : `${f.clientName}${partyBId}${partyBEntity}`
+  const partyBAddressParts = [f.clientStreetAddress, f.clientCity, f.clientState, f.clientPostcode, countryName].filter(Boolean)
+  const partyBAddress = partyBAddressParts.length > 1 ? `, of ${partyBAddressParts.join(', ')}` : ''
+  const partyBContact = f.clientEmail ? `. Contact: ${f.clientEmail}${f.clientPhone ? `, ${f.clientPhone}` : ''}` : ''
+  const partyBFull = `${partyBName}${partyBAddress}${partyBContact}`
+
   const juris = `${f.jurisdiction}, ${countryName}`
+  const disputeClause = f.disputeResolution === 'courts'
+    ? `Disputes to be resolved in the courts of ${f.jurisdiction}, ${countryName}.`
+    : f.disputeResolution === 'arbitration'
+    ? `Disputes to be resolved by binding arbitration in ${f.jurisdiction}, ${countryName}.`
+    : `Disputes to be resolved by mediation, then arbitration if unresolved, in ${f.jurisdiction}, ${countryName}.`
 
   switch (f.contractType) {
     case 'nda':
-      return `Generate an NDA between ${yourParty} and ${clientParty}. Purpose: ${f.ndaPurpose || 'sharing confidential business information'}. Duration: ${f.ndaDuration || '2'} years. Protecting: ${f.ndaProtecting || 'all confidential business information'}. ${f.ndaMutual ? 'This is a mutual NDA.' : 'One-way disclosure from the disclosing party.'} Effective: ${f.effectiveDate || 'the date of signing'}. Jurisdiction: ${juris}.`
+      return `Generate an NDA between Party A: ${partyAFull} and Party B: ${partyBFull}. Purpose: ${f.ndaPurpose || 'sharing confidential business information'}. Duration: ${f.ndaDuration || '2'} years. Protecting: ${f.ndaProtecting || 'all confidential business information'}. ${f.ndaMutual ? 'This is a mutual NDA.' : 'One-way disclosure from Party A to Party B.'} Effective: ${f.effectiveDate || 'the date of signing'}. Jurisdiction: ${juris}. ${disputeClause}`
 
     case 'service_agreement':
-      return `Generate a Freelance Service Agreement between ${yourParty} (service provider) and ${clientParty} (client). Project: ${f.projectDescription || 'professional services'}. Key deliverables: ${f.deliverables || 'as agreed'}. Duration: ${f.startDate || 'commencement date'} to ${f.endDate || 'project completion'}. Payment: ${currency} ${f.amount || '0'} (${f.rateType}). Payment terms: ${f.paymentTerms?.replace('net', 'Net ')} days. ${f.latePaymentFee ? 'Late payment fee applies.' : ''} IP ownership: ${f.ipOwner === 'you' ? 'service provider retains IP' : f.ipOwner === 'client' ? 'client owns all IP' : 'shared IP'}. ${f.revisionRounds ? `${f.revisionRounds} revision rounds included.` : ''} ${f.confidentiality ? 'Confidentiality clause required.' : ''} ${f.nonCompete ? 'Non-compete clause required.' : ''} Jurisdiction: ${juris}.`
+      return `Generate a Freelance Service Agreement between Party A: ${partyAFull} (service provider) and Party B: ${partyBFull} (client). Project: ${f.projectDescription || 'professional services'}. Key deliverables: ${f.deliverables || 'as agreed'}. Duration: ${f.startDate || 'commencement date'} to ${f.endDate || 'project completion'}. Payment: ${currency} ${f.amount || '0'} (${f.rateType}). Payment terms: ${f.paymentTerms?.replace('net', 'Net ')} days. ${f.latePaymentFee ? 'Late payment fee applies.' : ''} IP ownership: ${f.ipOwner === 'you' ? 'service provider retains all IP' : f.ipOwner === 'client' ? 'client owns all IP upon full payment' : 'IP shared equally between parties'}. ${f.revisionRounds ? `${f.revisionRounds} revision rounds included.` : ''} ${f.confidentiality ? 'Mutual confidentiality clause required.' : ''} ${f.nonCompete ? 'Non-compete clause required.' : ''} Jurisdiction: ${juris}. ${disputeClause}`
 
     case 'employment':
-      return `Generate a Fixed-Term Employment Agreement between ${yourParty} (employer) and ${clientParty} (employee). Role: ${f.roleTitle || 'employee'}. Salary: ${currency} ${f.salary || '0'} per ${f.payFrequency || 'year'}. Probation period: ${f.probationPeriod || '3 months'}. Notice period: ${f.noticePeriod || '2 weeks'}. ${f.nonCompete ? 'Non-compete clause required.' : ''} Effective: ${f.effectiveDate || 'commencement date'}. Jurisdiction: ${juris}.`
+      return `Generate a Fixed-Term Employment Agreement between Party A: ${partyAFull} (employer) and Party B: ${partyBFull} (employee). Role: ${f.roleTitle || 'employee'}. Salary: ${currency} ${f.salary || '0'} per ${f.payFrequency || 'year'}. Probation period: ${f.probationPeriod || '3 months'}. Notice period: ${f.noticePeriod || '2 weeks'}. ${f.nonCompete ? 'Non-compete clause required.' : ''} Effective: ${f.effectiveDate || 'commencement date'}. Jurisdiction: ${juris}. ${disputeClause} Include statutory entitlements applicable under ${countryName} law.`
 
     case 'independent_contractor':
-      return `Generate an Independent Contractor Agreement between ${yourParty} (client) and ${clientParty} (contractor). Scope: ${f.projectScope || 'as agreed between the parties'}. Rate: ${currency} ${f.amount || '0'} (${f.rateType}). ${f.expenseReimbursement ? 'Reasonable expense reimbursement included.' : ''} IP ownership: ${f.ipOwner === 'you' ? 'client owns all IP' : f.ipOwner === 'client' ? 'contractor retains IP' : 'shared IP'}. ${f.nonCompete ? 'Non-compete clause required.' : ''} Jurisdiction: ${juris}.`
+      return `Generate an Independent Contractor Agreement between Party A: ${partyAFull} (principal/client) and Party B: ${partyBFull} (independent contractor). Scope: ${f.projectScope || 'as agreed between the parties'}. Rate: ${currency} ${f.amount || '0'} (${f.rateType}). Payment terms: ${f.paymentTerms?.replace('net', 'Net ')} days. ${f.expenseReimbursement ? 'Reasonable pre-approved expenses reimbursable.' : ''} IP ownership: ${f.ipOwner === 'you' ? 'client owns all IP upon full payment' : f.ipOwner === 'client' ? 'contractor retains IP' : 'IP shared equally'}. ${f.nonCompete ? 'Non-compete clause required.' : ''} The contractor is engaged as an independent contractor, not an employee. Jurisdiction: ${juris}. ${disputeClause}`
 
     case 'sla':
-      return `Generate a Service Level Agreement between ${yourParty} (service provider) and ${clientParty} (client). Scope: ${f.projectDescription || 'ongoing services'}. Payment: ${currency} ${f.amount || '0'} (${f.rateType}). ${f.confidentiality ? 'Confidentiality clause required.' : ''} Jurisdiction: ${juris}.`
+      return `Generate a Service Level Agreement between Party A: ${partyAFull} (service provider) and Party B: ${partyBFull} (client). Scope: ${f.projectDescription || 'ongoing services'}. Payment: ${currency} ${f.amount || '0'} (${f.rateType}). Payment terms: ${f.paymentTerms?.replace('net', 'Net ')} days. ${f.confidentiality ? 'Confidentiality clause required.' : ''} Include service credits and remedies for SLA breaches. Jurisdiction: ${juris}. ${disputeClause}`
 
     case 'ip_assignment':
-      return `Generate an IP Assignment Agreement between ${yourParty} (assignor) and ${clientParty} (assignee). Assignment of: ${f.projectDescription || 'all intellectual property created during the engagement'}. Consideration: ${currency} ${f.amount || '0'}. Jurisdiction: ${juris}.`
+      return `Generate an IP Assignment Agreement between Party A: ${partyAFull} (assignor) and Party B: ${partyBFull} (assignee). Assignment of: ${f.projectDescription || 'all intellectual property created during the engagement'}. Consideration: ${currency} ${f.amount || '0'}. Assignment is permanent and irrevocable upon payment. Include moral rights waiver where applicable. Jurisdiction: ${juris}. ${disputeClause}`
 
     case 'vendor_supplier':
-      return `Generate a Vendor/Supplier Agreement between ${yourParty} (supplier) and ${clientParty} (buyer). Goods/services: ${f.projectDescription || 'as specified in purchase orders'}. Payment terms: ${f.paymentTerms?.replace('net', 'Net ')} days. ${f.confidentiality ? 'Confidentiality clause required.' : ''} Jurisdiction: ${juris}.`
+      return `Generate a Vendor/Supplier Agreement between Party A: ${partyAFull} (supplier) and Party B: ${partyBFull} (buyer/client). Goods/services: ${f.projectDescription || 'as specified in purchase orders'}. Payment terms: ${f.paymentTerms?.replace('net', 'Net ')} days. ${f.latePaymentFee ? 'Late payment fee applies.' : ''} ${f.confidentiality ? 'Mutual confidentiality clause required.' : ''} Include warranty, liability, and indemnification provisions. Jurisdiction: ${juris}. ${disputeClause}`
 
     case 'partnership':
-      return `Generate a Partnership Agreement between ${yourParty} and ${clientParty}. Business purpose: ${f.projectDescription || 'as mutually agreed'}. ${f.amount ? `Initial capital contribution: ${currency} ${f.amount}.` : ''} Jurisdiction: ${juris}.`
+      return `Generate a Partnership Agreement between Party A: ${partyAFull} and Party B: ${partyBFull}. Business purpose: ${f.projectDescription || 'as mutually agreed'}. ${f.amount ? `Initial capital contribution: ${currency} ${f.amount} per partner.` : ''} Include profit/loss sharing, decision-making authority, dispute resolution between partners, and exit provisions. Jurisdiction: ${juris}. ${disputeClause}`
 
     default:
-      return `Generate a contract between ${yourParty} and ${clientParty}. Jurisdiction: ${juris}.`
+      return `Generate a contract between Party A: ${partyAFull} and Party B: ${partyBFull}. Jurisdiction: ${juris}.`
   }
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
+export interface ProfileData {
+  full_name?: string
+  business_name?: string
+  entity_type?: string
+  country?: string
+  abn?: string
+  acn?: string
+  gstin?: string
+  pan?: string
+  street_address?: string
+  city?: string
+  postcode?: string
+  address?: string
+  jurisdiction?: string
+  email?: string
+  phone?: string
+  signatory_name?: string
+  signatory_title?: string
+}
+
 interface SmartContractFormProps {
   onSubmit: (prompt: string) => void
   disabled: boolean
-  initialProfile?: {
-    full_name?: string
-    business_name?: string
-    country?: string
-    abn?: string
-    gstin?: string
-    pan?: string
-    jurisdiction?: string
-  } | null
+  initialProfile?: ProfileData | null
 }
 
 export default function SmartContractForm({ onSubmit, disabled, initialProfile }: SmartContractFormProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
+
+  // Build derived address from structured fields or fall back to legacy address
+  const derivedAddress = initialProfile
+    ? [
+        initialProfile.street_address,
+        initialProfile.city,
+        initialProfile.jurisdiction,
+        initialProfile.postcode,
+      ].filter(Boolean).join(', ') || initialProfile.address || ''
+    : ''
+
   const [form, setForm] = useState<FormData>({
     country: (initialProfile?.country as Country) ?? 'AU',
     contractType: null,
+
+    // Party A from profile
     yourName: initialProfile?.full_name ?? '',
     yourBusiness: initialProfile?.business_name ?? '',
-    businessId: initialProfile?.abn ?? initialProfile?.gstin ?? initialProfile?.pan ?? '',
+    yourEntityType: initialProfile?.entity_type ?? '',
+    yourBusinessId: initialProfile?.abn ?? initialProfile?.gstin ?? initialProfile?.pan ?? '',
+    yourAcn: initialProfile?.acn ?? '',
+    yourAddress: derivedAddress,
+    yourEmail: initialProfile?.email ?? '',
+    yourPhone: initialProfile?.phone ?? '',
+    yourSignatoryName: initialProfile?.signatory_name ?? initialProfile?.full_name ?? '',
+    yourSignatoryTitle: initialProfile?.signatory_title ?? '',
+
+    // Party B
     clientName: '',
     clientBusiness: '',
+    clientEntityType: '',
+    clientBusinessId: '',
+    clientStreetAddress: '',
+    clientCity: '',
+    clientState: '',
+    clientPostcode: '',
+    clientEmail: '',
+    clientPhone: '',
+    clientSignatoryName: '',
+    clientSignatoryTitle: '',
+
+    // Contract metadata
     jurisdiction: initialProfile?.jurisdiction ?? 'NSW',
     effectiveDate: '',
+    disputeResolution: 'courts',
+
+    // NDA
     ndaPurpose: '',
     ndaDuration: '2',
     ndaProtecting: '',
     ndaMutual: false,
+
+    // Service Agreement
     projectDescription: '',
     deliverables: '',
     startDate: '',
@@ -179,11 +296,15 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
     revisionRounds: '',
     confidentiality: true,
     nonCompete: false,
+
+    // Employment
     roleTitle: '',
     salary: '',
     payFrequency: 'year',
     probationPeriod: '3 months',
     noticePeriod: '2 weeks',
+
+    // Independent Contractor
     projectScope: '',
     expenseReimbursement: false,
   })
@@ -193,6 +314,32 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
     setForm((f) => ({ ...f, jurisdiction: defaultJurisdiction(f.country) }))
   }, [form.country])
 
+  // Sync party A from profile when initialProfile changes
+  useEffect(() => {
+    if (!initialProfile) return
+    const addr = [
+      initialProfile.street_address,
+      initialProfile.city,
+      initialProfile.jurisdiction,
+      initialProfile.postcode,
+    ].filter(Boolean).join(', ') || initialProfile.address || ''
+    setForm((f) => ({
+      ...f,
+      yourName: initialProfile.full_name ?? f.yourName,
+      yourBusiness: initialProfile.business_name ?? f.yourBusiness,
+      yourEntityType: initialProfile.entity_type ?? f.yourEntityType,
+      yourBusinessId: initialProfile.abn ?? initialProfile.gstin ?? initialProfile.pan ?? f.yourBusinessId,
+      yourAcn: initialProfile.acn ?? f.yourAcn,
+      yourAddress: addr || f.yourAddress,
+      yourEmail: initialProfile.email ?? f.yourEmail,
+      yourPhone: initialProfile.phone ?? f.yourPhone,
+      yourSignatoryName: initialProfile.signatory_name ?? initialProfile.full_name ?? f.yourSignatoryName,
+      yourSignatoryTitle: initialProfile.signatory_title ?? f.yourSignatoryTitle,
+      country: (initialProfile.country as Country) ?? f.country,
+      jurisdiction: initialProfile.jurisdiction ?? f.jurisdiction,
+    }))
+  }, [initialProfile]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function set<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm((f) => ({ ...f, [key]: value }))
   }
@@ -201,6 +348,8 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
     const prompt = buildPrompt(form)
     onSubmit(prompt)
   }
+
+  const profileIncomplete = !form.yourName || !form.yourAddress
 
   // ── Step 1 ──
   if (step === 1) {
@@ -311,57 +460,155 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
           </button>
         </div>
 
-        <div className="p-5 space-y-5 max-h-[600px] overflow-y-auto">
-          {/* Your Details */}
-          <Section label="Your Details">
-            <Field label="Your Full Name">
-              <input type="text" value={form.yourName} onChange={(e) => set('yourName', e.target.value)} placeholder="Maya Chen" className={inputCls} />
+        <div className="p-5 space-y-5 max-h-[700px] overflow-y-auto">
+
+          {/* ── Party A: Your Details (pre-filled from profile) ── */}
+          <div>
+            <div className="flex items-center justify-between mb-2.5 pb-1.5 border-b border-[#EBEBEB]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">Your Details (Party A)</span>
+              <Link href="/onboarding" className="text-[10px] text-[#D0000A] font-bold hover:underline">
+                Edit Profile →
+              </Link>
+            </div>
+
+            {profileIncomplete ? (
+              <div className="border border-amber-300 bg-amber-50 px-4 py-3">
+                <p className="text-[12px] text-amber-800 font-semibold mb-1">Profile incomplete</p>
+                <p className="text-[11px] text-amber-700">Your legal name and address are required for a valid contract.</p>
+                <Link href="/onboarding" className="inline-block mt-2 text-[10px] font-black uppercase tracking-wider text-[#D0000A] hover:underline">
+                  Complete Profile →
+                </Link>
+              </div>
+            ) : (
+              <div className="border border-[#EBEBEB] divide-y divide-[#EBEBEB] bg-[#FAFAFA]">
+                <ProfileRow label="Legal Name" value={form.yourBusiness ? `${form.yourBusiness}` : form.yourName} />
+                {form.yourBusiness && <ProfileRow label="Represented by" value={`${form.yourSignatoryName}${form.yourSignatoryTitle ? `, ${form.yourSignatoryTitle}` : ''}`} />}
+                {form.yourEntityType && <ProfileRow label="Entity Type" value={ENTITY_TYPE_LABELS[form.yourEntityType] ?? form.yourEntityType} />}
+                {form.yourBusinessId && <ProfileRow label={bizIdLabel} value={form.yourBusinessId} />}
+                {form.yourAcn && <ProfileRow label="ACN" value={form.yourAcn} />}
+                <ProfileRow label="Address" value={form.yourAddress} />
+                {form.yourEmail && <ProfileRow label="Email" value={form.yourEmail} />}
+                {form.yourPhone && <ProfileRow label="Phone" value={form.yourPhone} />}
+              </div>
+            )}
+          </div>
+
+          {/* ── Party B: Other Party ── */}
+          <Section label="Other Party (Party B)">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Legal Name / Full Name *">
+                <input type="text" value={form.clientName} onChange={(e) => set('clientName', e.target.value)} placeholder="John Smith" className={inputCls} />
+              </Field>
+              <Field label="Company / Business Name">
+                <input type="text" value={form.clientBusiness} onChange={(e) => set('clientBusiness', e.target.value)} placeholder="Acme Corp Pty Ltd" className={inputCls} />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Entity Type">
+                <select value={form.clientEntityType} onChange={(e) => set('clientEntityType', e.target.value)} className={inputCls}>
+                  <option value="">— Select —</option>
+                  <option value="individual">Individual</option>
+                  <option value="sole_trader">Sole Trader</option>
+                  <option value="company">Company (Pty Ltd / Ltd)</option>
+                  <option value="trust">Trust</option>
+                  <option value="partnership">Partnership</option>
+                  <option value="other">Other</option>
+                </select>
+              </Field>
+              <Field label={`${bizIdLabel} / Company No. (optional)`}>
+                <input type="text" value={form.clientBusinessId} onChange={(e) => set('clientBusinessId', e.target.value)} placeholder={form.country === 'AU' ? '12 345 678 901' : 'GSTIN or PAN'} className={inputCls} />
+              </Field>
+            </div>
+
+            <Field label="Street Address *">
+              <input type="text" value={form.clientStreetAddress} onChange={(e) => set('clientStreetAddress', e.target.value)} placeholder="100 George Street" className={inputCls} />
             </Field>
-            <Field label="Your Business Name (optional)">
-              <input type="text" value={form.yourBusiness} onChange={(e) => set('yourBusiness', e.target.value)} placeholder="Pixel Studio Pty Ltd" className={inputCls} />
-            </Field>
-            <Field label={bizIdLabel + ' (optional)'}>
-              <input type="text" value={form.businessId} onChange={(e) => set('businessId', e.target.value)} placeholder={form.country === 'AU' ? '12 345 678 901' : 'GSTIN or PAN'} className={inputCls} />
-            </Field>
+
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="City / Suburb *">
+                <input type="text" value={form.clientCity} onChange={(e) => set('clientCity', e.target.value)} placeholder="Melbourne" className={inputCls} />
+              </Field>
+              <Field label="State / Province">
+                <input type="text" value={form.clientState} onChange={(e) => set('clientState', e.target.value)} placeholder="VIC" className={inputCls} />
+              </Field>
+              <Field label="Postcode">
+                <input type="text" value={form.clientPostcode} onChange={(e) => set('clientPostcode', e.target.value)} placeholder="3000" className={inputCls} />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Email Address *">
+                <input type="email" value={form.clientEmail} onChange={(e) => set('clientEmail', e.target.value)} placeholder="john@acme.com" className={inputCls} />
+                <p className="text-[10px] text-[#ADADAD] mt-1">Used to send signing link</p>
+              </Field>
+              <Field label="Phone (optional)">
+                <input type="tel" value={form.clientPhone} onChange={(e) => set('clientPhone', e.target.value)} placeholder="+61 3 xxxx xxxx" className={inputCls} />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Signatory Full Name">
+                <input type="text" value={form.clientSignatoryName} onChange={(e) => set('clientSignatoryName', e.target.value)} placeholder="Jane Doe" className={inputCls} />
+                <p className="text-[10px] text-[#ADADAD] mt-1">Person authorised to sign</p>
+              </Field>
+              <Field label="Signatory Title / Role">
+                <input type="text" value={form.clientSignatoryTitle} onChange={(e) => set('clientSignatoryTitle', e.target.value)} placeholder="CEO / Director" className={inputCls} />
+              </Field>
+            </div>
           </Section>
 
-          {/* Client Details */}
-          <Section label="Client / Other Party">
-            <Field label="Their Name">
-              <input type="text" value={form.clientName} onChange={(e) => set('clientName', e.target.value)} placeholder="Acme Corp" className={inputCls} />
-            </Field>
-            <Field label="Their Business Name (optional)">
-              <input type="text" value={form.clientBusiness} onChange={(e) => set('clientBusiness', e.target.value)} placeholder="Acme Pty Ltd" className={inputCls} />
-            </Field>
-          </Section>
-
-          {/* Project / Contract Details */}
+          {/* ── Contract Metadata ── */}
           <Section label="Contract Details">
-            <Field label="Jurisdiction">
-              <select value={form.jurisdiction} onChange={(e) => set('jurisdiction', e.target.value)} className={inputCls}>
-                {jurisdictions.map((j) => <option key={j} value={j}>{j}</option>)}
-              </select>
-            </Field>
-            <Field label="Effective Date">
-              <input type="date" value={form.effectiveDate} onChange={(e) => set('effectiveDate', e.target.value)} className={inputCls} />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Jurisdiction (Governing Law)">
+                <select value={form.jurisdiction} onChange={(e) => set('jurisdiction', e.target.value)} className={inputCls}>
+                  {jurisdictions.map((j) => <option key={j} value={j}>{j}</option>)}
+                </select>
+              </Field>
+              <Field label="Effective Date *">
+                <input type="date" value={form.effectiveDate} onChange={(e) => set('effectiveDate', e.target.value)} className={inputCls} />
+              </Field>
+            </div>
+            <Field label="Dispute Resolution">
+              <div className="flex gap-2">
+                {([
+                  ['courts', 'Courts'],
+                  ['mediation', 'Mediation'],
+                  ['arbitration', 'Arbitration'],
+                ] as [DisputeResolution, string][]).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => set('disputeResolution', val)}
+                    className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider border transition-colors ${form.disputeResolution === val ? 'bg-[#0C0C0C] text-white border-[#0C0C0C]' : 'border-[#DADADA] text-[#656565] hover:border-[#0C0C0C]'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-[#ADADAD] mt-1">
+                {form.disputeResolution === 'courts' && 'Disputes resolved in the courts of the governing jurisdiction.'}
+                {form.disputeResolution === 'mediation' && 'Mediation first, then arbitration if unresolved.'}
+                {form.disputeResolution === 'arbitration' && 'Binding arbitration — faster and private, but no court appeal.'}
+              </p>
             </Field>
           </Section>
 
           {/* NDA fields */}
           {form.contractType === 'nda' && (
             <Section label="NDA Details">
-              <Field label="Disclosure Purpose">
+              <Field label="Disclosure Purpose *">
                 <input type="text" value={form.ndaPurpose} onChange={(e) => set('ndaPurpose', e.target.value)} placeholder="Evaluating a potential business partnership" className={inputCls} />
               </Field>
-              <Field label="What is being protected">
-                <input type="text" value={form.ndaProtecting} onChange={(e) => set('ndaProtecting', e.target.value)} placeholder="Trade secrets, client lists, product roadmap" className={inputCls} />
+              <Field label="What is being protected *">
+                <input type="text" value={form.ndaProtecting} onChange={(e) => set('ndaProtecting', e.target.value)} placeholder="Trade secrets, client lists, product roadmap, source code" className={inputCls} />
               </Field>
               <Field label="Duration (years)">
                 <input type="number" min="1" max="10" value={form.ndaDuration} onChange={(e) => set('ndaDuration', e.target.value)} className={inputCls} />
               </Field>
               <Field label="Disclosure Type">
                 <ToggleRow
-                  left="One-way (you disclose)"
+                  left="One-way (Party A discloses)"
                   right="Mutual"
                   value={form.ndaMutual}
                   onChange={(v) => set('ndaMutual', v)}
@@ -372,9 +619,9 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
 
           {/* Service Agreement / SLA / IP / Vendor / Partnership */}
           {['service_agreement', 'sla', 'ip_assignment', 'vendor_supplier', 'partnership'].includes(form.contractType ?? '') && (
-            <Section label="Project Details">
-              <Field label="Project / Service Description">
-                <textarea rows={2} value={form.projectDescription} onChange={(e) => set('projectDescription', e.target.value)} placeholder="Describe the work or services..." className={`${inputCls} resize-none`} />
+            <Section label="Project / Service Details">
+              <Field label="Project / Service Description *">
+                <textarea rows={3} value={form.projectDescription} onChange={(e) => set('projectDescription', e.target.value)} placeholder="Describe the work, goods, or services in detail..." className={`${inputCls} resize-none`} />
               </Field>
               {form.contractType === 'service_agreement' && (
                 <>
@@ -409,7 +656,7 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
               <Field label={`Amount (${currency})`}>
                 <input type="number" min="0" value={form.amount} onChange={(e) => set('amount', e.target.value)} placeholder="8500" className={inputCls} />
               </Field>
-              {['service_agreement', 'vendor_supplier'].includes(form.contractType ?? '') && (
+              {['service_agreement', 'vendor_supplier', 'independent_contractor'].includes(form.contractType ?? '') && (
                 <>
                   <Field label="Payment Terms">
                     <div className="flex gap-2">
@@ -431,7 +678,7 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
           {/* Employment fields */}
           {form.contractType === 'employment' && (
             <Section label="Employment Details">
-              <Field label="Role Title">
+              <Field label="Role / Position Title *">
                 <input type="text" value={form.roleTitle} onChange={(e) => set('roleTitle', e.target.value)} placeholder="Senior Designer" className={inputCls} />
               </Field>
               <div className="grid grid-cols-2 gap-3">
@@ -461,29 +708,34 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
           {/* Independent Contractor fields */}
           {form.contractType === 'independent_contractor' && (
             <Section label="Contractor Details">
-              <Field label="Project Scope">
-                <textarea rows={2} value={form.projectScope} onChange={(e) => set('projectScope', e.target.value)} placeholder="Describe the ongoing work or project scope..." className={`${inputCls} resize-none`} />
+              <Field label="Project Scope *">
+                <textarea rows={3} value={form.projectScope} onChange={(e) => set('projectScope', e.target.value)} placeholder="Describe the ongoing work or project scope in detail..." className={`${inputCls} resize-none`} />
               </Field>
               <Field label="Expense Reimbursement">
-                <ToggleRow left="No" right="Yes" value={form.expenseReimbursement} onChange={(v) => set('expenseReimbursement', v)} />
+                <ToggleRow left="No" right="Yes (pre-approved expenses)" value={form.expenseReimbursement} onChange={(v) => set('expenseReimbursement', v)} />
               </Field>
             </Section>
           )}
 
-          {/* Ownership & Extras */}
+          {/* IP & Ownership */}
           {['service_agreement', 'ip_assignment', 'independent_contractor'].includes(form.contractType ?? '') && (
-            <Section label="Ownership & Extras">
+            <Section label="Ownership & IP">
               <Field label="IP Ownership">
                 <div className="flex gap-2">
                   {(['you', 'client', 'shared'] as IPOwner[]).map((o) => (
                     <button key={o} onClick={() => set('ipOwner', o)} className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider border transition-colors ${form.ipOwner === o ? 'bg-[#0C0C0C] text-white border-[#0C0C0C]' : 'border-[#DADADA] text-[#656565] hover:border-[#0C0C0C]'}`}>
-                      {o === 'you' ? 'You' : o === 'client' ? 'Client' : 'Shared'}
+                      {o === 'you' ? 'You retain' : o === 'client' ? 'Client owns' : 'Shared'}
                     </button>
                   ))}
                 </div>
+                <p className="text-[10px] text-[#ADADAD] mt-1">
+                  {form.ipOwner === 'you' && 'You retain all IP. Client gets a licence to use the deliverables.'}
+                  {form.ipOwner === 'client' && 'Client owns all IP upon full payment. You retain no rights.'}
+                  {form.ipOwner === 'shared' && 'Both parties jointly own all IP created under this agreement.'}
+                </p>
               </Field>
               {form.contractType === 'service_agreement' && (
-                <Field label="Revision Rounds">
+                <Field label="Revision Rounds Included">
                   <input type="number" min="0" max="10" value={form.revisionRounds} onChange={(e) => set('revisionRounds', e.target.value)} placeholder="2" className={inputCls} />
                 </Field>
               )}
@@ -492,13 +744,13 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
 
           {/* Clauses toggles */}
           {['service_agreement', 'sla', 'vendor_supplier', 'employment', 'independent_contractor'].includes(form.contractType ?? '') && (
-            <Section label="Clauses">
+            <Section label="Additional Clauses">
               {['service_agreement', 'sla', 'vendor_supplier'].includes(form.contractType ?? '') && (
-                <Field label="Confidentiality">
+                <Field label="Confidentiality / NDA Clause">
                   <ToggleRow left="Not required" right="Required" value={form.confidentiality} onChange={(v) => set('confidentiality', v)} />
                 </Field>
               )}
-              <Field label="Non-Compete">
+              <Field label="Non-Compete Clause">
                 <ToggleRow left="Not required" right="Required" value={form.nonCompete} onChange={(v) => set('nonCompete', v)} />
               </Field>
             </Section>
@@ -508,11 +760,16 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
         <div className="px-5 pb-5">
           <button
             onClick={() => setStep(3)}
-            disabled={!form.yourName.trim() || !form.clientName.trim()}
+            disabled={!form.yourName.trim() || !form.clientName.trim() || !form.clientEmail.trim() || !form.clientStreetAddress.trim() || !form.clientCity.trim()}
             className="w-full bg-[#D0000A] text-white font-black text-[12px] uppercase tracking-widest py-4 border border-[#0C0C0C] shadow-[3px_3px_0_#0C0C0C] hover:bg-[#A80008] disabled:opacity-40 disabled:cursor-not-allowed transition-all mt-2"
           >
             Review & Generate →
           </button>
+          {(!form.clientEmail.trim() || !form.clientStreetAddress.trim() || !form.clientCity.trim()) && form.clientName.trim() && (
+            <p className="text-[10px] text-[#ADADAD] text-center mt-2">
+              Party B email and address are required for a legally complete contract
+            </p>
+          )}
         </div>
       </div>
     )
@@ -521,6 +778,7 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
   // ── Step 3 — Review ──
   const prompt = buildPrompt(form)
   const ct = CONTRACT_TYPES.find((x) => x.key === form.contractType)
+  const bizIdLabel = form.country === 'AU' ? 'ABN' : 'GSTIN/PAN'
 
   return (
     <div className="bg-white border border-[#0C0C0C] shadow-[5px_5px_0_#0C0C0C]">
@@ -539,28 +797,52 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
       <div className="p-5">
         {/* Summary */}
         <div className="divide-y divide-[#EBEBEB] border border-[#EBEBEB] mb-4">
+          <div className="px-4 py-2 bg-[#F8F8F8]">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[#ADADAD]">Party A (You)</span>
+          </div>
+          {[
+            ['Name', form.yourBusiness || form.yourName],
+            form.yourBusiness ? ['Signatory', `${form.yourSignatoryName}${form.yourSignatoryTitle ? `, ${form.yourSignatoryTitle}` : ''}`] : null,
+            form.yourBusinessId ? [bizIdLabel, form.yourBusinessId] : null,
+            ['Address', form.yourAddress],
+            form.yourEmail ? ['Email', form.yourEmail] : null,
+          ].filter((r): r is [string, string] => r !== null && !!r[1]).map(([label, value]) => (
+            <div key={label} className="px-4 py-2.5 grid grid-cols-[110px_1fr] gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">{label}</span>
+              <span className="text-[12px] font-semibold text-[#0C0C0C]">{value}</span>
+            </div>
+          ))}
+
+          <div className="px-4 py-2 bg-[#F8F8F8]">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[#ADADAD]">Party B (Other Party)</span>
+          </div>
+          {[
+            ['Name', form.clientBusiness || form.clientName],
+            form.clientSignatoryName ? ['Signatory', `${form.clientSignatoryName}${form.clientSignatoryTitle ? `, ${form.clientSignatoryTitle}` : ''}`] : null,
+            form.clientBusinessId ? [bizIdLabel, form.clientBusinessId] : null,
+            ['Address', [form.clientStreetAddress, form.clientCity, form.clientState, form.clientPostcode].filter(Boolean).join(', ')],
+            ['Email', form.clientEmail],
+          ].filter((r): r is [string, string] => r !== null && !!r[1]).map(([label, value]) => (
+            <div key={label} className="px-4 py-2.5 grid grid-cols-[110px_1fr] gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">{label}</span>
+              <span className="text-[12px] font-semibold text-[#0C0C0C]">{value}</span>
+            </div>
+          ))}
+
+          <div className="px-4 py-2 bg-[#F8F8F8]">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[#ADADAD]">Contract</span>
+          </div>
           {[
             ['Type', ct?.label ?? ''],
-            ['Country', form.country === 'AU' ? '🇦🇺 Australia' : '🇮🇳 India'],
             ['Jurisdiction', form.jurisdiction],
-            ['Your Party', [form.yourName, form.yourBusiness].filter(Boolean).join(' / ')],
-            ['Other Party', [form.clientName, form.clientBusiness].filter(Boolean).join(' / ')],
             form.effectiveDate ? ['Effective', form.effectiveDate] : null,
-            form.businessId ? ['Business ID', form.businessId] : null,
-          ]
-            .filter((r): r is [string, string] => r !== null && !!r[1])
-            .map(([label, value]) => (
-              <div key={label} className="px-4 py-2.5 grid grid-cols-[110px_1fr] gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">{label}</span>
-                <span className="text-[12px] font-semibold text-[#0C0C0C]">{value}</span>
-              </div>
-            ))}
-        </div>
-
-        {/* Constructed prompt preview */}
-        <div className="bg-[#F8F8F8] border border-[#EBEBEB] px-4 py-3 mb-4">
-          <div className="text-[9px] font-bold uppercase tracking-widest text-[#ADADAD] mb-1.5">Prompt</div>
-          <p className="text-[11px] text-[#656565] leading-relaxed">{prompt}</p>
+            ['Disputes', form.disputeResolution.charAt(0).toUpperCase() + form.disputeResolution.slice(1)],
+          ].filter((r): r is [string, string] => r !== null && !!r[1]).map(([label, value]) => (
+            <div key={label} className="px-4 py-2.5 grid grid-cols-[110px_1fr] gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#656565]">{label}</span>
+              <span className="text-[12px] font-semibold text-[#0C0C0C]">{value}</span>
+            </div>
+          ))}
         </div>
 
         <button
@@ -578,6 +860,15 @@ export default function SmartContractForm({ onSubmit, disabled, initialProfile }
 // ── Small helpers ─────────────────────────────────────────────────────────────
 const inputCls =
   'w-full border border-[#DADADA] px-3 py-2.5 text-[13px] text-[#0C0C0C] bg-white outline-none focus:border-[#0C0C0C] transition-colors'
+
+function ProfileRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="px-3 py-2 grid grid-cols-[100px_1fr] gap-2">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-[#ADADAD]">{label}</span>
+      <span className="text-[12px] text-[#0C0C0C]">{value}</span>
+    </div>
+  )
+}
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (

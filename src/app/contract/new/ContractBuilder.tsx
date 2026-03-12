@@ -7,7 +7,8 @@ import type { ContractIntent } from '@/lib/pipeline/intent-parser'
 import type { RiskAnalysis } from '@/lib/pipeline/risk-analyser'
 import type { GroundingResult } from '@/lib/pipeline/clause-grounding-validator'
 import type { ClauseExplanation } from '@/lib/pipeline/plain-english'
-import SmartContractForm from '@/components/contract/SmartContractForm'
+import SmartContractForm, { type ProfileData } from '@/components/contract/SmartContractForm'
+import { supabase } from '@/lib/supabase'
 import FairnessScoreWidget from '@/components/contract/FairnessScoreWidget'
 import PlainEnglishPanel from '@/components/contract/PlainEnglishPanel'
 import SendForSignatureModal from '@/components/contract/SendForSignatureModal'
@@ -38,15 +39,7 @@ const RISK_COLOURS: Record<string, string> = {
   low: 'text-green-600 bg-green-50 border-green-200',
 }
 
-type ProfileShape = {
-  full_name?: string
-  business_name?: string
-  country?: string
-  abn?: string
-  gstin?: string
-  pan?: string
-  jurisdiction?: string
-} | null
+type ProfileShape = ProfileData | null
 
 export default function ContractBuilder() {
   const [stage, setStage] = useState<Stage>('idle')
@@ -63,14 +56,34 @@ export default function ContractBuilder() {
   const [profile, setProfile] = useState<ProfileShape>(null)
   const contractRef = useRef<HTMLDivElement>(null)
 
-  // Load profile from localStorage (for unauthenticated users) or Supabase
+  // Load profile — authenticated users from Supabase, fallback to localStorage
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('clausifai_profile')
-      if (raw) setProfile(JSON.parse(raw))
-    } catch {
-      // ignore
+    async function loadProfile() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('full_name,business_name,entity_type,country,abn,acn,gstin,pan,street_address,city,postcode,address,jurisdiction,email,phone,signatory_name,signatory_title')
+            .eq('id', user.id)
+            .single()
+          if (data) {
+            // Merge auth email in case it's not stored in profile yet
+            setProfile({ ...data, email: data.email || user.email })
+            return
+          }
+        }
+        // Fallback to localStorage for unauthenticated / demo users
+        const raw = localStorage.getItem('clausifai_profile')
+        if (raw) setProfile(JSON.parse(raw))
+      } catch {
+        try {
+          const raw = localStorage.getItem('clausifai_profile')
+          if (raw) setProfile(JSON.parse(raw))
+        } catch { /* ignore */ }
+      }
     }
+    loadProfile()
   }, [])
 
   async function generate(overridePrompt: string) {
