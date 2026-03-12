@@ -26,6 +26,14 @@ interface ProofreadResult {
   issues: Issue[];
 }
 
+interface AcceptedFix {
+  span: string;
+  suggestion: string;
+  type: IssueType;
+  severity: Severity;
+  title: string;
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const ISSUE_STYLES: Record<IssueType, { underline: string; bg: string; label: string; dot: string }> = {
@@ -96,16 +104,6 @@ type Segment =
   | { type: "text"; text: string }
   | { type: "highlight"; text: string; issue: Issue };
 
-/**
- * Find `span` in `text`, returning { start, end } in the original text.
- *
- * Strategy:
- * 1. Case-insensitive exact match (fastest, most accurate)
- * 2. Collapse internal whitespace in both and search — handles PDF extraction
- *    artifacts where single spaces become multiple spaces or newlines
- *
- * Returns null if not found by either method.
- */
 function findSpanInText(text: string, span: string): { start: number; end: number } | null {
   if (!span || !span.trim()) return null;
 
@@ -113,32 +111,19 @@ function findSpanInText(text: string, span: string): { start: number; end: numbe
   const lowerText = text.toLowerCase();
   const lowerSpan = span.toLowerCase().trim();
   const idx = lowerText.indexOf(lowerSpan);
-  if (idx !== -1) {
-    return { start: idx, end: idx + lowerSpan.length };
-  }
+  if (idx !== -1) return { start: idx, end: idx + lowerSpan.length };
 
   // 2. Whitespace-collapsed match
-  // Build a version of text with all whitespace runs collapsed to single space,
-  // but keep a map from collapsed index → original index
-  const origToCollapsed: number[] = new Array(text.length);
   const collapsedToOrig: number[] = [];
   let collapsed = "";
   let prevWasSpace = false;
-
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     const isSpace = /\s/.test(ch);
     if (isSpace) {
-      if (!prevWasSpace) {
-        origToCollapsed[i] = collapsed.length;
-        collapsedToOrig.push(i);
-        collapsed += " ";
-      } else {
-        origToCollapsed[i] = collapsed.length - 1; // points to the existing space
-      }
+      if (!prevWasSpace) { collapsedToOrig.push(i); collapsed += " "; }
       prevWasSpace = true;
     } else {
-      origToCollapsed[i] = collapsed.length;
       collapsedToOrig.push(i);
       collapsed += ch.toLowerCase();
       prevWasSpace = false;
@@ -150,28 +135,20 @@ function findSpanInText(text: string, span: string): { start: number; end: numbe
   if (collapsedIdx === -1) return null;
 
   const realStart = collapsedToOrig[collapsedIdx];
-  // Walk forward in the original text to find end position
   let origPos = realStart;
   let collapsedPos = collapsedIdx;
   while (collapsedPos < collapsedIdx + collapsedSpan.length && origPos < text.length) {
-    const ch = text[origPos];
-    const isSpace = /\s/.test(ch);
+    const isSpace = /\s/.test(text[origPos]);
     if (isSpace) {
-      // Skip all consecutive whitespace in original, advance collapsed by 1 space
       while (origPos < text.length && /\s/.test(text[origPos])) origPos++;
       collapsedPos++;
-    } else {
-      origPos++;
-      collapsedPos++;
-    }
+    } else { origPos++; collapsedPos++; }
   }
-
   return { start: realStart, end: origPos };
 }
 
 function buildSegments(text: string, issues: Issue[], dismissed: Set<number>): Segment[] {
   const active = issues.filter((i) => !dismissed.has(i.id));
-
   const spans = active
     .map((issue) => {
       const match = findSpanInText(text, issue.span);
@@ -193,6 +170,30 @@ function buildSegments(text: string, issues: Issue[], dismissed: Set<number>): S
   return segments;
 }
 
+// Apply accepted fixes to contract text — replaces span with suggestion text
+function applyFixes(text: string, acceptedFixes: Map<number, AcceptedFix>): string {
+  let result = text;
+  // Apply in reverse order of position to preserve indices
+  const fixes = Array.from(acceptedFixes.values());
+  // Sort by position in text (last first) so earlier positions aren't shifted
+  const positioned = fixes
+    .map((fix) => {
+      const match = findSpanInText(result, fix.span);
+      return match ? { ...fix, ...match } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b!.start - a!.start) as (AcceptedFix & { start: number; end: number })[];
+
+  for (const fix of positioned) {
+    // Extract just the replacement text — strip "Replace with:", "Add:", "Remove:" prefixes
+    const suggestion = fix.suggestion
+      .replace(/^(Replace with:|Add:|Remove:)\s*/i, "")
+      .trim();
+    result = result.slice(0, fix.start) + suggestion + result.slice(fix.end);
+  }
+  return result;
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ProofreadPage() {
@@ -210,9 +211,20 @@ export default function ProofreadPage() {
 
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   const [filter, setFilter] = useState("all");
+  // dismissed = issues hidden from view (both accepted and dismissed)
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
+  // acceptedFixes = fixes the user wants to apply to the contract
+  const [acceptedFixes, setAcceptedFixes] = useState<Map<number, AcceptedFix>>(new Map());
+
   const [searchQuery, setSearchQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
+
+  // Export modal state
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportTitle, setExportTitle] = useState("");
+  const [exportSaving, setExportSaving] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState<{ contractId: string; versionNumber: number } | null>(null);
 
   const highlightRefs = useRef<Record<number, HTMLSpanElement | null>>({});
 
@@ -267,9 +279,11 @@ export default function ProofreadPage() {
     setResult(null);
     setActiveIssue(null);
     setDismissed(new Set());
+    setAcceptedFixes(new Map());
     setFilter("all");
     setSearchQuery("");
     setSearchIndex(0);
+    setExportSuccess(null);
     try {
       const res = await fetch("/api/contracts/proofread", {
         method: "POST",
@@ -294,12 +308,62 @@ export default function ProofreadPage() {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         el.style.outline = "2px solid #D0021B";
         el.style.outlineOffset = "2px";
-        setTimeout(() => {
-          el.style.outline = "none";
-          el.style.outlineOffset = "0px";
-        }, 1200);
+        setTimeout(() => { el.style.outline = "none"; el.style.outlineOffset = "0px"; }, 1200);
       }
     }, 50);
+  }
+
+  // Accept: track the fix for applying later + hide from view
+  function acceptIssue(issue: Issue) {
+    setAcceptedFixes((prev) => {
+      const next = new Map(prev);
+      next.set(issue.id, {
+        span: issue.span,
+        suggestion: issue.suggestion,
+        type: issue.type,
+        severity: issue.severity,
+        title: issue.title,
+      });
+      return next;
+    });
+    setDismissed((d) => new Set([...d, issue.id]));
+    setActiveIssue(null);
+  }
+
+  // Dismiss: just hide from view, don't apply fix
+  function dismissIssue(issue: Issue) {
+    setDismissed((d) => new Set([...d, issue.id]));
+    setActiveIssue(null);
+  }
+
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  async function handleExport() {
+    setExportSaving(true);
+    setExportError(null);
+    try {
+      const fixedText = applyFixes(contractText, acceptedFixes);
+      const changelog = Array.from(acceptedFixes.values());
+
+      const res = await fetch("/api/contracts/versions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractText: fixedText,
+          originalText: contractText,
+          title: exportTitle.trim() || result?.contractType || "Uploaded contract",
+          source: "proofread",
+          fixChangelog: changelog,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error ?? "Failed to save.");
+      setExportSuccess({ contractId: data.contractId, versionNumber: data.version.version_number });
+    } catch (err: unknown) {
+      setExportError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setExportSaving(false);
+    }
   }
 
   // ── Derived values ────────────────────────────────────────────────────────
@@ -336,8 +400,7 @@ export default function ProofreadPage() {
 
   return (
     <main style={{
-      minHeight: "100vh",
-      background: "#f5f5f5",
+      minHeight: "100vh", background: "#f5f5f5",
       backgroundImage: `linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px)`,
       backgroundSize: "40px 40px",
       fontFamily: "var(--font-geist-sans, 'Helvetica Neue', Arial, sans-serif)",
@@ -355,9 +418,7 @@ export default function ProofreadPage() {
           <span style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.03em", color: "#111" }}>clausifai</span>
           <span style={{ fontSize: 17, fontWeight: 900, color: "#D0021B" }}>.</span>
         </div>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#999" }}>
-          Proofread
-        </span>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#999" }}>Proofread</span>
       </nav>
 
       {!result ? (
@@ -374,15 +435,9 @@ export default function ProofreadPage() {
 
           <div style={{ display: "flex", gap: 0, marginBottom: 28, border: "1px solid #ddd", background: "#fff" }}>
             {(["legal", "grammar", "missing", "risky"] as IssueType[]).map((type, i) => (
-              <div key={type} style={{
-                flex: 1, padding: "10px 14px",
-                borderRight: i < 3 ? "1px solid #eee" : "none",
-                display: "flex", alignItems: "center", gap: 7,
-              }}>
+              <div key={type} style={{ flex: 1, padding: "10px 14px", borderRight: i < 3 ? "1px solid #eee" : "none", display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ width: 7, height: 7, borderRadius: "50%", background: ISSUE_STYLES[type].dot, flexShrink: 0, display: "inline-block" }} />
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#555" }}>
-                  {ISSUE_STYLES[type].label}
-                </span>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#555" }}>{ISSUE_STYLES[type].label}</span>
               </div>
             ))}
           </div>
@@ -406,35 +461,22 @@ export default function ProofreadPage() {
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb" }}>Contract Input</span>
                 {contractText.length > 0 && <span style={{ fontSize: 10, color: "#ccc" }}>{contractText.length.toLocaleString()} chars</span>}
               </div>
-              <textarea
-                value={contractText}
-                onChange={(e) => setContractText(e.target.value)}
-                placeholder="Paste your contract text here..."
-                rows={10}
-                style={{
-                  width: "100%", padding: "14px 16px", fontSize: 12, lineHeight: 1.8,
-                  border: "none", resize: "vertical", background: "transparent", color: "#111",
-                  fontFamily: "var(--font-geist-mono, monospace)", outline: "none",
-                  boxSizing: "border-box", display: "block",
-                }}
-              />
+              <textarea value={contractText} onChange={(e) => setContractText(e.target.value)} placeholder="Paste your contract text here..." rows={10} style={{
+                width: "100%", padding: "14px 16px", fontSize: 12, lineHeight: 1.8, border: "none", resize: "vertical",
+                background: "transparent", color: "#111", fontFamily: "var(--font-geist-mono, monospace)",
+                outline: "none", boxSizing: "border-box", display: "block",
+              }} />
             </div>
           )}
 
           {mode === "upload" && (
             <div style={{ background: "#fff", border: "1px solid #ddd", borderTop: "none" }}>
               {!uploadedFile ? (
-                <div
-                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{
-                    padding: "48px 24px", border: `2px dashed ${isDragging ? "#D0021B" : "#ddd"}`,
-                    margin: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
-                    cursor: "pointer", background: isDragging ? "#fff8f8" : "transparent", transition: "all 0.15s",
-                  }}
-                >
+                <div onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()} style={{
+                  padding: "48px 24px", border: `2px dashed ${isDragging ? "#D0021B" : "#ddd"}`, margin: 16,
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
+                  cursor: "pointer", background: isDragging ? "#fff8f8" : "transparent", transition: "all 0.15s",
+                }}>
                   <span style={{ fontSize: 28 }}>↑</span>
                   <div style={{ textAlign: "center" }}>
                     <p style={{ fontSize: 13, fontWeight: 700, color: "#111", margin: "0 0 4px" }}>Drop your contract here</p>
@@ -447,35 +489,28 @@ export default function ProofreadPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     {extracting
                       ? <span style={{ width: 14, height: 14, border: "2px solid #ddd", borderTopColor: "#D0021B", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite", flexShrink: 0 }} />
-                      : <span style={{ fontSize: 18 }}>📄</span>
-                    }
+                      : <span style={{ fontSize: 18 }}>📄</span>}
                     <div>
                       <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#111" }}>{uploadedFile.name}</p>
-                      <p style={{ margin: 0, fontSize: 11, color: "#aaa" }}>
-                        {extracting ? "Extracting text..." : `${contractText.length.toLocaleString()} characters extracted`}
-                      </p>
+                      <p style={{ margin: 0, fontSize: 11, color: "#aaa" }}>{extracting ? "Extracting text..." : `${contractText.length.toLocaleString()} characters extracted`}</p>
                     </div>
                   </div>
                   <button onClick={clearFile} style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", background: "none", border: "1px solid #ddd", padding: "5px 10px", color: "#999", cursor: "pointer", fontFamily: "inherit" }}>Remove</button>
                 </div>
               )}
-              {extractError && (
-                <div style={{ margin: "0 16px 16px", padding: "10px 14px", background: "#fff0f0", borderLeft: "3px solid #D0021B", color: "#D0021B", fontSize: 12 }}>{extractError}</div>
-              )}
+              {extractError && <div style={{ margin: "0 16px 16px", padding: "10px 14px", background: "#fff0f0", borderLeft: "3px solid #D0021B", color: "#D0021B", fontSize: 12 }}>{extractError}</div>}
             </div>
           )}
 
           <button onClick={handleProofread} disabled={isDisabled} style={{
-            width: "100%", padding: "13px 24px", fontSize: 11, fontWeight: 800,
-            letterSpacing: "0.12em", textTransform: "uppercase",
+            width: "100%", padding: "13px 24px", fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase",
             background: isDisabled ? "#e0e0e0" : "#111", color: isDisabled ? "#aaa" : "#fff",
-            border: "none", cursor: isDisabled ? "not-allowed" : "pointer",
-            fontFamily: "inherit", marginBottom: 40,
+            border: "none", cursor: isDisabled ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 40,
             display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
           }}>
-            {loading ? (
-              <><span style={{ width: 11, height: 11, border: "2px solid #555", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} />Proofreading...</>
-            ) : "Proofread Contract →"}
+            {loading
+              ? <><span style={{ width: 11, height: 11, border: "2px solid #555", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} />Proofreading...</>
+              : "Proofread Contract →"}
           </button>
 
           {error && <div style={{ padding: "12px 16px", background: "#fff0f0", borderLeft: "3px solid #D0021B", color: "#D0021B", fontSize: 13, marginBottom: 32 }}>{error}</div>}
@@ -497,6 +532,15 @@ export default function ProofreadPage() {
               </div>
               {highCount > 0 && <div style={{ marginTop: 10, fontSize: 10, fontWeight: 700, color: "#D0021B", letterSpacing: "0.06em" }}>⚠ {highCount} HIGH RISK</div>}
             </div>
+
+            {/* Accepted fixes count */}
+            {acceptedFixes.size > 0 && (
+              <div style={{ padding: "12px 18px", background: "#f0fff4", borderBottom: "1px solid #bbf7d0" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "#16a34a" }}>
+                  ✓ {acceptedFixes.size} FIX{acceptedFixes.size !== 1 ? "ES" : ""} ACCEPTED
+                </div>
+              </div>
+            )}
 
             <div style={{ padding: "16px 18px 8px" }}>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb", marginBottom: 10 }}>Filter Issues</div>
@@ -521,9 +565,23 @@ export default function ProofreadPage() {
               })}
             </div>
 
-            <div style={{ marginTop: "auto", padding: "16px 18px", borderTop: "1px solid #eee" }}>
+            <div style={{ marginTop: "auto", padding: "16px 18px", borderTop: "1px solid #eee", display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Export Fixed Contract button — only shows when fixes have been accepted */}
+              {acceptedFixes.size > 0 && (
+                <button
+                  onClick={() => { setShowExportModal(true); setExportError(null); setExportSuccess(null); }}
+                  style={{
+                    width: "100%", padding: "10px",
+                    fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase",
+                    background: "#D0021B", color: "#fff", border: "none",
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >
+                  Export Fixed Contract →
+                </button>
+              )}
               <button
-                onClick={() => { setResult(null); setContractText(""); clearFile(); setError(null); setActiveIssue(null); setFilter("all"); setDismissed(new Set()); setSearchQuery(""); setSearchIndex(0); }}
+                onClick={() => { setResult(null); setContractText(""); clearFile(); setError(null); setActiveIssue(null); setFilter("all"); setDismissed(new Set()); setAcceptedFixes(new Map()); setSearchQuery(""); setSearchIndex(0); setExportSuccess(null); }}
                 style={{ width: "100%", padding: "9px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#999", border: "1px solid #ddd", cursor: "pointer", fontFamily: "inherit" }}
               >← New Contract</button>
             </div>
@@ -543,13 +601,7 @@ export default function ProofreadPage() {
             {/* Search bar */}
             <div style={{ maxWidth: 680, margin: "0 auto 20px" }}>
               <div style={{ display: "flex", alignItems: "center", border: "2px solid #111", background: "#fff" }}>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); setSearchIndex(0); }}
-                  placeholder="Search contract..."
-                  style={{ flex: 1, padding: "8px 12px", fontSize: 11, border: "none", color: "#111", background: "transparent", fontFamily: "var(--font-geist-mono, monospace)", outline: "none" }}
-                />
+                <input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setSearchIndex(0); }} placeholder="Search contract..." style={{ flex: 1, padding: "8px 12px", fontSize: 11, border: "none", color: "#111", background: "transparent", fontFamily: "var(--font-geist-mono, monospace)", outline: "none" }} />
                 {searchQuery && (
                   <>
                     <span style={{ fontSize: 10, color: "#999", fontFamily: "var(--font-geist-mono, monospace)", paddingRight: 8 }}>
@@ -586,19 +638,13 @@ export default function ProofreadPage() {
                       });
                       return <span key={i}>{rendered}</span>;
                     }
-
                     const s = ISSUE_STYLES[seg.issue.type];
                     const isActive = activeIssue?.id === seg.issue.id;
                     return (
-                      <span
-                        key={i}
+                      <span key={i}
                         ref={(el) => { highlightRefs.current[seg.issue.id] = el; }}
                         onClick={(e) => { e.stopPropagation(); setActiveIssue(isActive ? null : seg.issue); }}
-                        style={{
-                          background: isActive ? s.bg.replace("0.6", "1").replace("0.7", "1") : s.bg,
-                          borderBottom: `2px solid ${s.underline}`,
-                          cursor: "pointer", padding: "1px 0",
-                        }}
+                        style={{ background: isActive ? s.bg.replace("0.6", "1").replace("0.7", "1") : s.bg, borderBottom: `2px solid ${s.underline}`, cursor: "pointer", padding: "1px 0" }}
                       >{seg.text}</span>
                     );
                   });
@@ -627,11 +673,7 @@ export default function ProofreadPage() {
                 <div style={{ padding: "16px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                     <span style={{ width: 7, height: 7, borderRadius: "50%", background: SEVERITY_COLOR[activeIssue.severity], flexShrink: 0, display: "inline-block" }} />
-                    <span style={{
-                      fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase",
-                      background: activeIssue.type === "legal" ? "#fff0f0" : activeIssue.type === "risky" ? "#fff7ed" : activeIssue.type === "missing" ? "#eff6ff" : "#fefce8",
-                      color: ISSUE_STYLES[activeIssue.type].dot, padding: "2px 7px", borderRadius: 2,
-                    }}>{ISSUE_STYLES[activeIssue.type].label}</span>
+                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: activeIssue.type === "legal" ? "#fff0f0" : activeIssue.type === "risky" ? "#fff7ed" : activeIssue.type === "missing" ? "#eff6ff" : "#fefce8", color: ISSUE_STYLES[activeIssue.type].dot, padding: "2px 7px", borderRadius: 2 }}>{ISSUE_STYLES[activeIssue.type].label}</span>
                     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: SEVERITY_COLOR[activeIssue.severity] }}>{activeIssue.severity}</span>
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: "-0.02em", color: "#111", marginBottom: 12 }}>{activeIssue.title}</div>
@@ -644,8 +686,8 @@ export default function ProofreadPage() {
                     <p style={{ margin: 0, fontSize: 12, color: "#166534", lineHeight: 1.65, fontStyle: "italic" }}>{activeIssue.suggestion}</p>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={() => { setDismissed((d) => new Set([...d, activeIssue.id])); setActiveIssue(null); }} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "#111", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}>✓ Accept</button>
-                    <button onClick={() => { setDismissed((d) => new Set([...d, activeIssue.id])); setActiveIssue(null); }} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#999", border: "1px solid #ddd", cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
+                    <button onClick={() => acceptIssue(activeIssue)} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "#111", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}>✓ Accept</button>
+                    <button onClick={() => dismissIssue(activeIssue)} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#999", border: "1px solid #ddd", cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
                   </div>
                 </div>
               </div>
@@ -672,6 +714,91 @@ export default function ProofreadPage() {
                     <div style={{ fontSize: 11, color: "#999", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-geist-mono, monospace)" }}>"{issue.span}"</div>
                   </button>
                 ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Export Modal ──────────────────────────────────────────────────── */}
+      {showExportModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowExportModal(false); }}
+        >
+          <div style={{ background: "#fff", border: "2px solid #111", width: 480, maxWidth: "90vw", padding: 0 }}>
+
+            {/* Modal header */}
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 900, letterSpacing: "-0.02em", color: "#111" }}>Export Fixed Contract</span>
+              <button onClick={() => setShowExportModal(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#999" }}>✕</button>
+            </div>
+
+            {exportSuccess ? (
+              // ── Success state
+              <div style={{ padding: "32px 24px", textAlign: "center" }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>✓</div>
+                <div style={{ fontSize: 14, fontWeight: 900, color: "#111", marginBottom: 8 }}>Saved successfully</div>
+                <div style={{ fontSize: 12, color: "#777", marginBottom: 4 }}>Version {exportSuccess.versionNumber} created</div>
+                <div style={{ fontSize: 11, color: "#bbb", fontFamily: "var(--font-geist-mono, monospace)", marginBottom: 24 }}>{exportSuccess.contractId}</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setShowExportModal(false)} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "#111", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Done</button>
+                  <a href={`/contracts/${exportSuccess.contractId}/versions`} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#111", border: "1px solid #ddd", cursor: "pointer", fontFamily: "inherit", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>View History →</a>
+                </div>
+              </div>
+            ) : (
+              // ── Form state
+              <div style={{ padding: "20px 24px" }}>
+
+                {/* Changelog preview */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb", marginBottom: 10 }}>
+                    {acceptedFixes.size} Fix{acceptedFixes.size !== 1 ? "es" : ""} to Apply
+                  </div>
+                  <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid #eee" }}>
+                    {Array.from(acceptedFixes.values()).map((fix, i) => (
+                      <div key={i} style={{ padding: "8px 12px", borderBottom: "1px solid #f5f5f5", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: ISSUE_STYLES[fix.type].dot, flexShrink: 0, marginTop: 4, display: "inline-block" }} />
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "#111" }}>{fix.title}</div>
+                          <div style={{ fontSize: 10, color: "#999", fontFamily: "var(--font-geist-mono, monospace)" }}>"{fix.span}"</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Contract title input */}
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb", display: "block", marginBottom: 6 }}>
+                    Contract Title
+                  </label>
+                  <input
+                    type="text"
+                    value={exportTitle}
+                    onChange={(e) => setExportTitle(e.target.value)}
+                    placeholder={result?.contractType || "e.g. Freelance Services Agreement"}
+                    style={{ width: "100%", padding: "9px 12px", fontSize: 12, border: "2px solid #111", background: "#fff", color: "#111", fontFamily: "var(--font-geist-mono, monospace)", outline: "none", boxSizing: "border-box" }}
+                  />
+                </div>
+
+                {exportError && (
+                  <div style={{ padding: "10px 12px", background: "#fff0f0", borderLeft: "3px solid #D0021B", color: "#D0021B", fontSize: 12, marginBottom: 16 }}>{exportError}</div>
+                )}
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={handleExport} disabled={exportSaving} style={{
+                    flex: 1, padding: "11px",
+                    fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase",
+                    background: exportSaving ? "#999" : "#D0021B", color: "#fff", border: "none",
+                    cursor: exportSaving ? "not-allowed" : "pointer", fontFamily: "inherit",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  }}>
+                    {exportSaving
+                      ? <><span style={{ width: 10, height: 10, border: "2px solid #fff8", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} />Saving...</>
+                      : "Save to Clausifai →"}
+                  </button>
+                  <button onClick={() => setShowExportModal(false)} style={{ padding: "11px 16px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#999", border: "1px solid #ddd", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                </div>
               </div>
             )}
           </div>
