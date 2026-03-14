@@ -787,8 +787,8 @@ function downloadPDF(md: string, filename: string) {
     // Bold / italic
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Blockquotes
-    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    // Blockquotes — strip the marker, treat as normal paragraph text in the PDF
+    .replace(/^> (.+)$/gm, '$1')
     // Horizontal rules
     .replace(/^[-*_]{3,}\s*$/gm, '<hr>')
     // Tables — wrap in <table>
@@ -855,13 +855,6 @@ function downloadPDF(md: string, filename: string) {
     }
     p { margin: 0 0 8pt; }
     strong { font-weight: 700; }
-    blockquote {
-      margin: 8pt 0;
-      padding: 6pt 12pt;
-      border-left: 3px solid #000;
-      background: #f5f5f5;
-      font-style: italic;
-    }
     hr { border: none; border-top: 1px solid #ccc; margin: 16pt 0; }
     table { width: 100%; border-collapse: collapse; margin: 8pt 0; font-size: 10pt; }
     th { font-weight: 700; text-align: left; border-bottom: 1.5px solid #000; padding: 4pt 6pt; }
