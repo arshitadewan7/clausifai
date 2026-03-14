@@ -630,6 +630,12 @@ export default function ContractBuilder() {
                   Copy
                 </button>
                 <button
+                  onClick={() => downloadPDF(contract, intent?.contractType.replace('_', ' ') ?? 'contract')}
+                  className="text-[10px] font-black uppercase tracking-wider px-3 py-1 border border-white/40 text-white hover:bg-white/10 transition-colors"
+                >
+                  Download PDF
+                </button>
+                <button
                   onClick={() => setShowSignModal(true)}
                   disabled={stage !== 'complete'}
                   className="text-[11px] font-black uppercase tracking-wider px-4 py-2 bg-white text-[#D0000A] border-2 border-white hover:bg-white/90 transition-colors shadow-[3px_3px_0_#0C0C0C] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
@@ -768,6 +774,108 @@ function markdownToPlainText(md: string): string {
     .replace(/`(.+?)`/g, '$1')            // inline code
     .replace(/\n{3,}/g, '\n\n')           // collapse excess blank lines
     .trim()
+}
+
+// ── Convert markdown to print-ready HTML and open print dialog ───────────────
+function downloadPDF(md: string, filename: string) {
+  // Convert markdown to HTML
+  let html = md
+    // Headings
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    // Bold / italic
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Blockquotes
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    // Horizontal rules
+    .replace(/^[-*_]{3,}\s*$/gm, '<hr>')
+    // Tables — wrap in <table>
+    .replace(/(\|.+\|\n)+/g, (block) => {
+      const rows = block.trim().split('\n').filter((r) => !/^[\s|:-]+$/.test(r))
+      const [head, ...body] = rows
+      const th = (head ?? '').split('|').filter(Boolean).map((c) => `<th>${c.trim()}</th>`).join('')
+      const trs = body.map((r) =>
+        '<tr>' + r.split('|').filter(Boolean).map((c) => `<td>${c.trim()}</td>`).join('') + '</tr>'
+      ).join('')
+      return `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`
+    })
+    // Paragraphs — wrap non-tag lines
+    .split('\n\n')
+    .map((block) => {
+      const trimmed = block.trim()
+      if (!trimmed) return ''
+      if (/^<(h[1-6]|blockquote|hr|table|ul|ol)/.test(trimmed)) return trimmed
+      return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`
+    })
+    .join('\n')
+
+  const win = window.open('', '_blank')
+  if (!win) return
+  win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${filename}</title>
+  <style>
+    @page { margin: 25mm 20mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Times New Roman', Times, serif;
+      font-size: 11pt;
+      line-height: 1.7;
+      color: #000;
+      max-width: 170mm;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 14pt;
+      font-weight: 700;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 0 0 24pt;
+      padding-bottom: 8pt;
+      border-bottom: 2px solid #000;
+    }
+    h2 {
+      font-size: 10pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 20pt 0 6pt;
+      padding-bottom: 3pt;
+      border-bottom: 1px solid #ccc;
+    }
+    h3 {
+      font-size: 11pt;
+      font-weight: 700;
+      margin: 12pt 0 4pt;
+    }
+    p { margin: 0 0 8pt; }
+    strong { font-weight: 700; }
+    blockquote {
+      margin: 8pt 0;
+      padding: 6pt 12pt;
+      border-left: 3px solid #000;
+      background: #f5f5f5;
+      font-style: italic;
+    }
+    hr { border: none; border-top: 1px solid #ccc; margin: 16pt 0; }
+    table { width: 100%; border-collapse: collapse; margin: 8pt 0; font-size: 10pt; }
+    th { font-weight: 700; text-align: left; border-bottom: 1.5px solid #000; padding: 4pt 6pt; }
+    td { border-bottom: 1px solid #ddd; padding: 4pt 6pt; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>${html}</body>
+</html>`)
+  win.document.close()
+  win.focus()
+  setTimeout(() => { win.print() }, 250)
 }
 
 // ── Inline Plain English accordion item (used inside the tab panel) ──────────
