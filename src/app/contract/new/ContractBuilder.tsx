@@ -48,6 +48,12 @@ export default function ContractBuilder() {
   const [showSignModal, setShowSignModal] = useState(false)
   const [profile, setProfile] = useState<ProfileShape>(null)
   const [activeTab, setActiveTab] = useState<'analysis' | 'plain_english' | 'details'>('analysis')
+  const [appliedFixes, setAppliedFixes] = useState<Set<string>>(new Set())
+  const [ignoredFlags, setIgnoredFlags] = useState<Set<string>>(new Set())
+  const [fixLoading, setFixLoading] = useState<string | null>(null)
+  const [undoState, setUndoState] = useState<{ contract: string; clauseRef: string } | null>(null)
+  const [undoSeconds, setUndoSeconds] = useState(10)
+  const [diffModal, setDiffModal] = useState<{ clauseRef: string; original: string; fixed: string } | null>(null)
   const contractRef = useRef<HTMLDivElement>(null)
 
   // Load profile — authenticated users from Supabase, fallback to localStorage
@@ -117,6 +123,81 @@ export default function ContractBuilder() {
       const scrollTarget = container.scrollTop + (elRect.top - containerRect.top) - 80
       container.scrollTo({ top: scrollTarget, behavior: 'smooth' })
     }
+  }
+
+  async function applyQuickFix(clauseRef: string, suggestion: string) {
+    setFixLoading(clauseRef)
+    try {
+      const res = await fetch('/api/contracts/quickfix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contract, clauseRef, suggestion }),
+      })
+      const data = await res.json()
+      if (data.fixedContract) {
+        setUndoState({ contract, clauseRef })
+        setUndoSeconds(10)
+        setContract(data.fixedContract)
+        setAppliedFixes((prev) => new Set([...prev, clauseRef]))
+        scrollToClause(clauseRef)
+        // Countdown then clear undo
+        let s = 10
+        const tick = setInterval(() => {
+          s -= 1
+          setUndoSeconds(s)
+          if (s <= 0) {
+            clearInterval(tick)
+            setUndoState(null)
+          }
+        }, 1000)
+      }
+    } finally {
+      setFixLoading(null)
+    }
+  }
+
+  function undoFix() {
+    if (!undoState) return
+    setContract(undoState.contract)
+    setAppliedFixes((prev) => {
+      const next = new Set(prev)
+      next.delete(undoState.clauseRef)
+      return next
+    })
+    setUndoState(null)
+  }
+
+  async function previewFix(clauseRef: string, suggestion: string) {
+    setFixLoading('preview-' + clauseRef)
+    try {
+      const res = await fetch('/api/contracts/quickfix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contract, clauseRef, suggestion }),
+      })
+      const data = await res.json()
+      if (data.fixedContract) {
+        setDiffModal({ clauseRef, original: contract, fixed: data.fixedContract })
+      }
+    } finally {
+      setFixLoading(null)
+    }
+  }
+
+  function confirmDiff() {
+    if (!diffModal) return
+    setUndoState({ contract, clauseRef: diffModal.clauseRef })
+    setUndoSeconds(10)
+    setContract(diffModal.fixed)
+    setAppliedFixes((prev) => new Set([...prev, diffModal.clauseRef]))
+    scrollToClause(diffModal.clauseRef)
+    setDiffModal(null)
+    let s = 10
+    const tick = setInterval(() => {
+      s -= 1
+      setUndoSeconds(s)
+      if (s <= 0) { clearInterval(tick); setUndoState(null) }
+    }, 1000)
   }
 
   async function generate(overridePrompt: string) {
@@ -369,60 +450,114 @@ export default function ContractBuilder() {
                         </span>
                       </div>
                       <div className="divide-y divide-[#EBEBEB]">
-                        {risk.flaggedClauses.map((fc, i) => (
-                          <div
-                            key={i}
-                            className={`border-l-4 ${
-                              fc.riskLevel === 'high'
-                                ? 'border-l-red-500'
-                                : fc.riskLevel === 'medium'
-                                ? 'border-l-amber-400'
-                                : 'border-l-green-500'
-                            }`}
-                          >
-                            {/* Clickable header — scrolls to clause */}
-                            <button
-                              onClick={() => scrollToClause(fc.clauseRef)}
-                              className="w-full px-5 py-3 flex items-start gap-3 text-left hover:bg-[#F8F8F8] transition-colors group"
-                            >
-                              <span className="flex-shrink-0 text-[14px] mt-0.5">
-                                {fc.riskLevel === 'high' ? '🔴' : fc.riskLevel === 'medium' ? '🟡' : '🟢'}
+                        {risk.flaggedClauses.map((fc, i) => {
+                          const isApplied = appliedFixes.has(fc.clauseRef)
+                          const isIgnored = ignoredFlags.has(fc.clauseRef)
+                          const isLoadingFix = fixLoading === fc.clauseRef
+                          const isLoadingPreview = fixLoading === 'preview-' + fc.clauseRef
+                          if (isIgnored) return (
+                            <div key={i} className="px-5 py-2.5 flex items-center justify-between bg-[#F8F8F8]">
+                              <span className="text-[11px] text-[#ADADAD]">
+                                Clause {fc.clauseRef} — ignored
                               </span>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-0.5">
-                                  <span
-                                    className={`text-[9px] font-black uppercase tracking-wider ${
-                                      fc.riskLevel === 'high'
-                                        ? 'text-red-600'
-                                        : fc.riskLevel === 'medium'
-                                        ? 'text-amber-600'
-                                        : 'text-green-600'
-                                    }`}
-                                  >
-                                    {fc.riskLevel}
-                                  </span>
-                                  <span className="text-[11px] font-black text-[#0C0C0C]">
-                                    Clause {fc.clauseRef}
-                                  </span>
-                                </div>
-                                <p className="text-[12px] text-[#656565] leading-relaxed">{fc.issue}</p>
-                              </div>
-                              <span className="text-[10px] font-black text-[#ADADAD] group-hover:text-[#D0000A] flex-shrink-0 mt-0.5 transition-colors">
-                                View →
-                              </span>
-                            </button>
-
-                            {/* Edit suggestion */}
-                            <div className="mx-5 mb-3 bg-[#F8F8F8] border border-[#EBEBEB] px-4 py-3">
-                              <span className="text-[9px] font-black uppercase tracking-widest text-[#656565] block mb-1.5">
-                                Suggested edit
-                              </span>
-                              <p className="text-[12px] text-[#0C0C0C] leading-relaxed font-medium">
-                                {fc.suggestion}
-                              </p>
+                              <button
+                                onClick={() => setIgnoredFlags((prev) => { const n = new Set(prev); n.delete(fc.clauseRef); return n })}
+                                className="text-[10px] font-black text-[#656565] hover:text-[#0C0C0C] uppercase tracking-wider"
+                              >
+                                Restore
+                              </button>
                             </div>
-                          </div>
-                        ))}
+                          )
+                          return (
+                            <div
+                              key={i}
+                              className={`border-l-4 ${
+                                isApplied ? 'border-l-amber-400 bg-amber-50/40' :
+                                fc.riskLevel === 'high' ? 'border-l-red-500' :
+                                fc.riskLevel === 'medium' ? 'border-l-amber-400' : 'border-l-green-500'
+                              }`}
+                            >
+                              {/* Header — scrolls to clause */}
+                              <button
+                                onClick={() => scrollToClause(fc.clauseRef)}
+                                className="w-full px-5 pt-3 pb-1 flex items-start gap-3 text-left hover:bg-black/[0.02] transition-colors group"
+                              >
+                                <span className="flex-shrink-0 text-[14px] mt-0.5">
+                                  {fc.riskLevel === 'high' ? '🔴' : fc.riskLevel === 'medium' ? '🟡' : '🟢'}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                    <span className={`text-[9px] font-black uppercase tracking-wider ${
+                                      fc.riskLevel === 'high' ? 'text-red-600' :
+                                      fc.riskLevel === 'medium' ? 'text-amber-600' : 'text-green-600'
+                                    }`}>{fc.riskLevel}</span>
+                                    <span className="text-[11px] font-black text-[#0C0C0C]">Clause {fc.clauseRef}</span>
+                                    {isApplied && (
+                                      <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-400 text-black">
+                                        ✓ Modified
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[12px] text-[#656565] leading-relaxed">{fc.issue}</p>
+                                </div>
+                                <span className="text-[10px] font-black text-[#ADADAD] group-hover:text-[#D0000A] flex-shrink-0 mt-0.5 transition-colors">
+                                  View →
+                                </span>
+                              </button>
+
+                              {/* AI Suggestion */}
+                              {!isApplied && (
+                                <div className="mx-5 mb-3 mt-2">
+                                  <div className="bg-[#0C0C0C] px-3 py-2">
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-white/50 block mb-1">
+                                      ✦ AI Suggestion
+                                    </span>
+                                    <p className="text-[12px] text-white leading-relaxed">
+                                      &ldquo;{fc.suggestion}&rdquo;
+                                    </p>
+                                  </div>
+
+                                  {/* Action buttons */}
+                                  <div className="flex gap-0 border border-t-0 border-[#0C0C0C]">
+                                    <button
+                                      onClick={() => applyQuickFix(fc.clauseRef, fc.suggestion)}
+                                      disabled={isLoadingFix || isLoadingPreview}
+                                      className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-[#D0000A] hover:bg-[#A80008] disabled:opacity-50 transition-colors border-r border-[#0C0C0C]"
+                                    >
+                                      {isLoadingFix ? 'Applying…' : '✦ Apply Quick Fix'}
+                                    </button>
+                                    <button
+                                      onClick={() => previewFix(fc.clauseRef, fc.suggestion)}
+                                      disabled={isLoadingFix || isLoadingPreview}
+                                      className="flex-1 py-2 text-[10px] font-black uppercase tracking-wider text-[#0C0C0C] bg-white hover:bg-[#F8F8F8] disabled:opacity-50 transition-colors border-r border-[#0C0C0C]"
+                                    >
+                                      {isLoadingPreview ? 'Loading…' : 'See Change'}
+                                    </button>
+                                    <button
+                                      onClick={() => setIgnoredFlags((prev) => new Set([...prev, fc.clauseRef]))}
+                                      className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-[#ADADAD] bg-white hover:bg-[#F8F8F8] transition-colors"
+                                    >
+                                      Ignore
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Applied state */}
+                              {isApplied && (
+                                <div className="mx-5 mb-3 mt-1 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200">
+                                  <span className="text-[11px] text-amber-800 flex-1">Clause updated successfully.</span>
+                                  <button
+                                    onClick={undoFix}
+                                    className="text-[10px] font-black uppercase tracking-wider text-amber-700 hover:text-amber-900"
+                                  >
+                                    Undo
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )}
@@ -669,13 +804,15 @@ export default function ContractBuilder() {
                       </h1>
                     ),
                     h2: ({ node, children, ...props }) => {
-                      // node is the mdast node — reliably extract plain text from it
                       const text = (node?.children ?? [])
                         .map((c: any) => c.value ?? '')
                         .join('')
                       const isHighlighted =
                         highlightedClause &&
                         text.toLowerCase().includes(highlightedClause.toLowerCase())
+                      const isModified = [...appliedFixes].some((ref) =>
+                        text.toLowerCase().includes(ref.toLowerCase())
+                      )
                       return (
                         <h2
                           {...props}
@@ -686,7 +823,14 @@ export default function ContractBuilder() {
                               : 'border-[#DADADA]'
                           }`}
                         >
-                          {children}
+                          <span className="inline-flex items-center gap-2">
+                            {children}
+                            {isModified && (
+                              <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-400 text-black align-middle">
+                                Modified
+                              </span>
+                            )}
+                          </span>
                         </h2>
                       )
                     },
@@ -755,11 +899,119 @@ export default function ContractBuilder() {
           onClose={() => setShowSignModal(false)}
         />
       )}
+
+      {/* Undo toast */}
+      {undoState && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-[#0C0C0C] text-white px-5 py-3 shadow-[4px_4px_0_#D0000A]">
+          <span className="text-[12px] font-semibold">
+            Clause {undoState.clauseRef} updated.
+          </span>
+          <button
+            onClick={undoFix}
+            className="text-[11px] font-black uppercase tracking-wider text-[#D0000A] hover:text-red-400 transition-colors"
+          >
+            Undo ({undoSeconds}s)
+          </button>
+        </div>
+      )}
+
+      {/* Diff modal */}
+      {diffModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-3xl bg-white border border-[#0C0C0C] shadow-[8px_8px_0_#D0000A] max-h-[80vh] flex flex-col">
+            <div className="bg-[#0C0C0C] px-6 py-4 flex items-center justify-between flex-shrink-0">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-white/70">
+                Proposed change — Clause {diffModal.clauseRef}
+              </span>
+              <button onClick={() => setDiffModal(null)} className="text-white/60 hover:text-white text-[20px] font-black leading-none">×</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <DiffView original={diffModal.original} fixed={diffModal.fixed} />
+            </div>
+
+            <div className="flex border-t border-[#0C0C0C] flex-shrink-0">
+              <button
+                onClick={() => setDiffModal(null)}
+                className="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wider text-[#656565] hover:bg-[#F8F8F8] border-r border-[#0C0C0C] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDiff}
+                className="flex-1 py-3.5 text-[11px] font-black uppercase tracking-wider text-white bg-[#D0000A] hover:bg-[#A80008] transition-colors"
+              >
+                ✦ Apply This Change
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ── Strip markdown to plain text for clipboard copy ──────────────────────────
+// ── Diff helpers ──────────────────────────────────────────────────────────────
+type DiffLine = { type: 'same' | 'removed' | 'added'; text: string }
+
+function computeDiff(original: string, fixed: string): DiffLine[] {
+  const a = original.split('\n')
+  const b = fixed.split('\n')
+  const result: DiffLine[] = []
+
+  // Find first diverging line
+  let lo = 0
+  while (lo < a.length && lo < b.length && a[lo] === b[lo]) lo++
+
+  // Find last diverging line (from the end)
+  let hiA = a.length - 1
+  let hiB = b.length - 1
+  while (hiA > lo && hiB > lo && a[hiA] === b[hiB]) { hiA--; hiB-- }
+
+  const CTX = 3
+  const ctxStart = Math.max(0, lo - CTX)
+  const ctxEndA = Math.min(a.length - 1, hiA + CTX)
+
+  if (ctxStart > 0) result.push({ type: 'same', text: `··· ${ctxStart} lines above ···` })
+  for (let i = ctxStart; i < lo; i++) result.push({ type: 'same', text: a[i] })
+  for (let i = lo; i <= hiA; i++) result.push({ type: 'removed', text: a[i] })
+  for (let i = lo; i <= hiB; i++) result.push({ type: 'added', text: b[i] })
+  for (let i = hiA + 1; i <= ctxEndA; i++) result.push({ type: 'same', text: a[i] })
+  if (ctxEndA < a.length - 1) result.push({ type: 'same', text: `··· ${a.length - 1 - ctxEndA} lines below ···` })
+
+  return result
+}
+
+function DiffView({ original, fixed }: { original: string; fixed: string }) {
+  const lines = computeDiff(original, fixed)
+  if (lines.length === 0) {
+    return <p className="px-6 py-8 text-[13px] text-[#ADADAD] text-center">No changes detected.</p>
+  }
+  return (
+    <div className="font-mono text-[12px] leading-relaxed">
+      {lines.map((line, i) => (
+        <div
+          key={i}
+          className={`px-6 py-0.5 flex gap-3 ${
+            line.type === 'removed'
+              ? 'bg-red-50 text-red-800'
+              : line.type === 'added'
+              ? 'bg-green-50 text-green-800'
+              : 'text-[#ADADAD]'
+          }`}
+        >
+          <span className="w-4 flex-shrink-0 select-none font-black">
+            {line.type === 'removed' ? '−' : line.type === 'added' ? '+' : ' '}
+          </span>
+          <span className="whitespace-pre-wrap break-all">{line.text || ' '}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Strip markdown to plain text for clipboard copy ───────────────────────────
 function markdownToPlainText(md: string): string {
   return md
     .replace(/^#{1,6}\s+/gm, '')          // headings
