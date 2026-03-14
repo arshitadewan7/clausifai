@@ -1,63 +1,118 @@
 // src/app/api/contracts/proofread/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { getSupabaseServer } from "@/lib/supabase";
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 });
 
-const SYSTEM_PROMPT = `You are a specialist legal contract proofreading engine for Clausifai, a platform that helps freelancers, startups, and small businesses in Australia understand and assess contracts.
+const SYSTEM_PROMPT = `You are a senior Australian solicitor conducting a full due diligence review of a contract on behalf of the weaker party — typically a freelancer, contractor, small business owner, or tenant. Your job is to protect them.
 
-## YOUR ROLE
-Proofread the provided contract and identify every issue across four categories:
-1. Legal language & clause issues — ambiguous, unenforceable, or legally problematic wording
-2. Grammar & spelling — typos, grammatical errors, punctuation issues
-3. Missing standard clauses — protections or clauses that are absent but expected in this type of contract
-4. Risky or one-sided terms — clauses that unfairly favour the other party over the contractor/freelancer
+## YOUR MANDATE
+Conduct a thorough, adversarial review. Assume the other party drafted this contract to favour themselves. Your client is signing this and needs to know every risk before they do.
 
-## LEGAL CONTEXT
-Apply Australian legal standards where applicable, including:
-- Australian Consumer Law (ACL)
-- Common law contract principles under Australian jurisdiction
+You must flag issues across four categories:
+1. LEGAL RISKS — ambiguous, unenforceable, or legally dangerous clauses under Australian law
+2. GRAMMAR & ERRORS — typos, grammatical errors, missing punctuation that could alter meaning
+3. MISSING CLAUSES — standard protections a competent solicitor would insist on for this contract type
+4. ONE-SIDED TERMS — clauses that unfairly favour the other party; anything a court might consider unconscionable
+
+## AUSTRALIAN LEGAL STANDARDS — APPLY ALL THAT ARE RELEVANT
+- Australian Consumer Law (ACL) — unfair contract terms, consumer guarantees
+- Fair Work Act 2009 — if employment or contractor relationships are involved
+- Privacy Act 1988 — if personal data is handled
+- Competition and Consumer Act 2010
+- Relevant state tenancy legislation if a lease is involved
+- Common law principles: consideration, certainty of terms, capacity, unconscionability
+- Limitation of liability clauses must comply with ACL s64 — they cannot exclude statutory guarantees
+- Intellectual property — who owns work product must be explicit
+- Termination clauses must be mutual and reasonable
+- Dispute resolution — must specify jurisdiction and process
+
+## WHAT TO FLAG — BE COMPREHENSIVE
+Flag ALL of the following without exception:
+- Any clause that could be void or unenforceable under Australian law
+- Any indemnity that is broader than the party's actual liability
+- Any IP assignment that transfers rights without clear consideration
+- Any termination clause that allows termination without cause or notice
+- Any payment clause that lacks a due date, late fee, or dispute process
+- Any confidentiality clause with no time limit or overly broad scope
+- Any limitation of liability clause that excludes statutory guarantees
+- Any clause that prevents the weaker party from seeking legal remedy
+- Any automatic renewal clause without notice requirement
+- Any jurisdiction clause that is inconvenient or disadvantageous
+- Any clause that is vague enough to be interpreted against your client
+- Any missing clause that leaves your client unprotected (e.g. no dispute resolution, no IP ownership, no termination process)
+- Grammar or punctuation errors that could change the legal meaning of a clause
+
+## WHAT NOT TO FLAG
+- Stylistic preferences or minor phrasing variations that do not affect legal meaning
+- Issues you are not confident about — if uncertain, omit
+- The same issue twice under different headings
 
 ## OUTPUT FORMAT
-Return ONLY valid JSON. No preamble, no explanation, no markdown fences, no commentary.
-
-Exact structure:
+Return ONLY valid JSON. No preamble, no explanation, no markdown fences.
 
 {
-  "contractType": <detected contract type as a string>,
-  "issueCount": <total number of issues found as integer>,
-  "healthScore": <integer 0–100 reflecting overall contract quality; deduct ~8–10 per high-severity issue, ~4–5 per medium, ~1–2 per low>,
+  "contractType": <string — detected contract type>,
+  "issueCount": <integer — total issues>,
+  "healthScore": <integer 0–100 — honest score; a contract with 3+ high issues must be below 55; a contract with no high issues and few mediums can be 75–85; a genuinely clean contract can be 90+>,
   "issues": [
     {
-      "id": <integer, starting from 1>,
+      "id": <integer starting from 1>,
       "type": <"grammar" | "legal" | "missing" | "risky">,
       "severity": <"high" | "medium" | "low">,
-      "span": <3–10 word phrase copied verbatim from the contract — must be findable via case-insensitive search>,
-      "title": <short title for the issue, max 8 words>,
-      "detail": <2–3 sentence explanation of why this is a problem, written in plain English for a non-lawyer Australian freelancer>,
-      "suggestion": <specific suggested replacement text or clause, beginning with 'Replace with:' or 'Add:' or 'Remove:'>
+      "span": <exact 3–10 word phrase from the contract — verbatim, findable by case-insensitive search>,
+      "title": <max 8 words — specific, not generic>,
+      "detail": <2–3 sentences — plain English explanation for a non-lawyer Australian; explain the real-world risk>,
+      "suggestion": <concrete fix starting with 'Replace with:', 'Add:', or 'Remove:'>
     }
   ]
 }
 
-## RULES
-- "span" must be 3–10 words taken verbatim from the contract — copy the exact words as they appear
-- Before finalising each issue, verify the span exists in the contract by mentally searching for it — if you are not certain it exists verbatim, do not include the issue
-- Every span must be a specific phrase, not a heading, section number, or structural label
-- For "missing" type issues, use the nearest related clause heading that actually exists in the contract as the span
-- Issues must be ordered by severity: high first, then medium, then low
-- Never fabricate issues — only flag problems that are genuinely present in the text provided
-- Grammar issues should only be flagged if they are real errors, not stylistic preferences
-- Risky terms must be assessed from the contractor/freelancer's perspective
-- All fields are required for every issue
-- If you are not confident about an issue, omit it entirely rather than guessing`;
+## SPAN RULES — CRITICAL
+- The span MUST exist verbatim in the contract — mentally verify before including
+- 3–10 words only — no headings, section numbers, or labels
+- For missing clause issues, use the span of the nearest existing clause that should have the protection nearby
+- If you cannot find a valid span, omit the issue entirely
+
+## SEVERITY GUIDE
+- HIGH: Could cause significant financial loss, loss of rights, or legal liability
+- MEDIUM: Unfair or risky but not immediately dangerous
+- LOW: Minor issue, grammar error, or small improvement
+
+Issues must be ordered: high → medium → low.`;
+
+// ── Similarity helpers ────────────────────────────────────────────────────
+
+function normalise(str: string): string {
+  return str.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function isSimilarTitle(a: string, b: string): boolean {
+  const na = normalise(a);
+  const nb = normalise(b);
+  if (na === nb) return true;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  const wordsA = new Set(na.split(" "));
+  const wordsB = nb.split(" ");
+  const overlap = wordsB.filter((w) => wordsA.has(w)).length;
+  return overlap / Math.max(wordsA.size, wordsB.length) >= 0.5;
+}
+
+function isSimilarSpan(a: string, b: string): boolean {
+  const na = normalise(a);
+  const nb = normalise(b);
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+// ── Route ─────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { contractText } = body;
+    const { contractText, sourceContractId } = body;
 
     if (!contractText || typeof contractText !== "string") {
       return NextResponse.json(
@@ -73,14 +128,54 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── Fetch previously fixed issues ────────────────────────────────────
+    type FixEntry = { title: string; span: string; type: string; severity: string };
+    let allPreviousFixes: FixEntry[] = [];
+    let roundNumber = 1;
+
+    if (sourceContractId) {
+      try {
+        const supabase = getSupabaseServer();
+        const { data: versions } = await supabase
+          .from("contract_versions")
+          .select("fix_changelog")
+          .eq("contract_id", sourceContractId)
+          .not("fix_changelog", "is", null);
+
+        if (versions && versions.length > 0) {
+          roundNumber = versions.length + 1;
+          allPreviousFixes = versions.flatMap(
+            (v: { fix_changelog: FixEntry[] | null }) => v.fix_changelog || []
+          );
+        }
+      } catch (err) {
+        console.warn("Could not fetch previous fixes:", err);
+      }
+    }
+
+    // ── Inject previous fixes into prompt ────────────────────────────────
+    let previousFixesSection = "";
+    if (allPreviousFixes.length > 0) {
+      previousFixesSection = `
+
+## PREVIOUSLY FIXED ISSUES — DO NOT RE-FLAG
+This is review round ${roundNumber}. The following issues were already identified and fixed. Do NOT flag these or anything closely similar:
+
+${allPreviousFixes.map((f) => `- "${f.span}" — ${f.title}`).join("\n")}
+
+Only flag issues clearly distinct from the above list.`;
+    }
+
+    const finalSystemPrompt = SYSTEM_PROMPT + previousFixesSection;
+
     const message = await client.messages.create({
       model: "claude-opus-4-5",
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
+      max_tokens: 6000,
+      system: finalSystemPrompt,
       messages: [
         {
           role: "user",
-          content: `Proofread the following contract and return all issues:\n\n${contractText}`,
+          content: `Conduct a full due diligence review of the following contract. Flag every issue:\n\n${contractText}`,
         },
       ],
     });
@@ -102,13 +197,42 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Strip any issues whose span cannot be found in the contract text
-    result.issues = result.issues.filter((issue: { span: string }) => {
+    // ── Strip hallucinated spans ──────────────────────────────────────────
+    result.issues = result.issues.filter((issue: FixEntry) => {
       const found = contractText.toLowerCase().includes(issue.span.toLowerCase());
       if (!found) console.warn(`Stripped hallucinated span: "${issue.span}"`);
       return found;
     });
-    result.issueCount = result.issues.length;
+
+    // ── Server-side: strip previously fixed issues ────────────────────────
+    if (allPreviousFixes.length > 0) {
+      const before = result.issues.length;
+      result.issues = result.issues.filter((issue: FixEntry) => {
+        const alreadyFixed = allPreviousFixes.some(
+          (prev) =>
+            isSimilarTitle(issue.title, prev.title) ||
+            isSimilarSpan(issue.span, prev.span)
+        );
+        if (alreadyFixed) console.log(`Suppressed: "${issue.title}"`);
+        return !alreadyFixed;
+      });
+      console.log(`Round ${roundNumber}: suppressed ${before - result.issues.length}, ${result.issues.length} remain`);
+    }
+
+    // ── Recalculate healthScore server-side ───────────────────────────────
+    const fixBonus     = Math.min(40, allPreviousFixes.length * 3);
+    const highCount    = result.issues.filter((i: FixEntry) => i.severity === "high").length;
+    const medCount     = result.issues.filter((i: FixEntry) => i.severity === "medium").length;
+    const lowCount     = result.issues.filter((i: FixEntry) => i.severity === "low").length;
+    const penalty      = highCount * 9 + medCount * 4 + lowCount * 1;
+    result.healthScore = Math.min(100, Math.max(0, 100 - penalty + fixBonus));
+    result.issueCount  = result.issues.length;
+
+    // Re-number IDs
+    result.issues = result.issues.map((issue: FixEntry & { id: number }, idx: number) => ({
+      ...issue,
+      id: idx + 1,
+    }));
 
     return NextResponse.json({ success: true, result });
   } catch (error) {
