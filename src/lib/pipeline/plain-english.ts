@@ -33,7 +33,8 @@ Return ONLY a valid JSON array with no surrounding text, matching this exact str
   if (!textBlock || textBlock.type !== 'text') return []
 
   try {
-    const raw = JSON.parse(textBlock.text)
+    const cleaned = textBlock.text.replace(/```json|```/g, '').trim()
+    const raw = JSON.parse(cleaned)
     return z.array(ClauseExplanationSchema).parse(raw)
   } catch {
     return []
