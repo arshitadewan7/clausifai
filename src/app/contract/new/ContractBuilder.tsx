@@ -80,6 +80,45 @@ export default function ContractBuilder() {
     loadProfile()
   }, [])
 
+  function scrollToClause(clauseRef: string) {
+    const needle = clauseRef.replace(/^(clause|section)\s*/i, '').trim().toLowerCase()
+    if (!needle) return
+    setHighlightedClause(needle)
+    if (!contractRef.current) return
+    const container = contractRef.current
+
+    // Search h2 and h3 — risk flags often reference sub-clauses (e.g. "3.2") that are h3
+    const headings = container.querySelectorAll<HTMLElement>('h2, h3')
+    let target: HTMLElement | null = null
+
+    // 1. Exact includes match
+    for (const el of headings) {
+      if ((el.textContent || '').toLowerCase().includes(needle)) {
+        target = el
+        break
+      }
+    }
+
+    // 2. Fallback: match top-level number only (e.g. "3" from "3.2")
+    if (!target) {
+      const topLevel = needle.split('.')[0]
+      for (const el of headings) {
+        const t = (el.textContent || '').toLowerCase()
+        if (t.startsWith(topLevel + '.') || t.startsWith(topLevel + ' ')) {
+          target = el
+          break
+        }
+      }
+    }
+
+    if (target) {
+      const containerRect = container.getBoundingClientRect()
+      const elRect = target.getBoundingClientRect()
+      const scrollTarget = container.scrollTop + (elRect.top - containerRect.top) - 80
+      container.scrollTo({ top: scrollTarget, behavior: 'smooth' })
+    }
+  }
+
   async function generate(overridePrompt: string) {
     if (!overridePrompt.trim()) return
     setStage('parsing')
@@ -331,29 +370,56 @@ export default function ContractBuilder() {
                       </div>
                       <div className="divide-y divide-[#EBEBEB]">
                         {risk.flaggedClauses.map((fc, i) => (
-                          <div key={i} className="px-5 py-3 flex gap-3">
-                            <span className="flex-shrink-0 mt-0.5 text-[14px]">
-                              {fc.riskLevel === 'high' ? '🔴' : fc.riskLevel === 'medium' ? '🟡' : '🟢'}
-                            </span>
-                            <div>
-                              <div className="flex items-center gap-2 mb-0.5">
-                                <span
-                                  className={`text-[9px] font-black uppercase tracking-wider ${
-                                    fc.riskLevel === 'high'
-                                      ? 'text-red-600'
-                                      : fc.riskLevel === 'medium'
-                                      ? 'text-amber-600'
-                                      : 'text-green-600'
-                                  }`}
-                                >
-                                  {fc.riskLevel}
-                                </span>
-                                <span className="text-[11px] font-black text-[#0C0C0C]">
-                                  Clause {fc.clauseRef}
-                                </span>
+                          <div
+                            key={i}
+                            className={`border-l-4 ${
+                              fc.riskLevel === 'high'
+                                ? 'border-l-red-500'
+                                : fc.riskLevel === 'medium'
+                                ? 'border-l-amber-400'
+                                : 'border-l-green-500'
+                            }`}
+                          >
+                            {/* Clickable header — scrolls to clause */}
+                            <button
+                              onClick={() => scrollToClause(fc.clauseRef)}
+                              className="w-full px-5 py-3 flex items-start gap-3 text-left hover:bg-[#F8F8F8] transition-colors group"
+                            >
+                              <span className="flex-shrink-0 text-[14px] mt-0.5">
+                                {fc.riskLevel === 'high' ? '🔴' : fc.riskLevel === 'medium' ? '🟡' : '🟢'}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <span
+                                    className={`text-[9px] font-black uppercase tracking-wider ${
+                                      fc.riskLevel === 'high'
+                                        ? 'text-red-600'
+                                        : fc.riskLevel === 'medium'
+                                        ? 'text-amber-600'
+                                        : 'text-green-600'
+                                    }`}
+                                  >
+                                    {fc.riskLevel}
+                                  </span>
+                                  <span className="text-[11px] font-black text-[#0C0C0C]">
+                                    Clause {fc.clauseRef}
+                                  </span>
+                                </div>
+                                <p className="text-[12px] text-[#656565] leading-relaxed">{fc.issue}</p>
                               </div>
-                              <p className="text-[12px] text-[#656565] leading-relaxed mb-1">{fc.issue}</p>
-                              <p className="text-[11px] text-[#0C0C0C] font-semibold">→ {fc.suggestion}</p>
+                              <span className="text-[10px] font-black text-[#ADADAD] group-hover:text-[#D0000A] flex-shrink-0 mt-0.5 transition-colors">
+                                View →
+                              </span>
+                            </button>
+
+                            {/* Edit suggestion */}
+                            <div className="mx-5 mb-3 bg-[#F8F8F8] border border-[#EBEBEB] px-4 py-3">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-[#656565] block mb-1.5">
+                                Suggested edit
+                              </span>
+                              <p className="text-[12px] text-[#0C0C0C] leading-relaxed font-medium">
+                                {fc.suggestion}
+                              </p>
                             </div>
                           </div>
                         ))}
@@ -415,6 +481,7 @@ export default function ContractBuilder() {
                           key={i}
                           item={item}
                           onHover={setHighlightedClause}
+                          defaultOpen={i === 0}
                         />
                       ))}
                     </div>
@@ -543,7 +610,7 @@ export default function ContractBuilder() {
 
         {/* Right panel — contract output */}
         <div
-          className={`bg-white border border-[#0C0C0C] shadow-[8px_8px_0_#D0000A] flex flex-col min-h-[600px] transition-all ${
+          className={`bg-white border border-[#0C0C0C] shadow-[8px_8px_0_#D0000A] flex flex-col h-[calc(100vh-120px)] sticky top-6 transition-all ${
             highlightedClause ? 'ring-2 ring-amber-300' : ''
           }`}
         >
@@ -596,7 +663,10 @@ export default function ContractBuilder() {
                       </h1>
                     ),
                     h2: ({ node, children, ...props }) => {
-                      const text = typeof children === 'string' ? children : ''
+                      // node is the mdast node — reliably extract plain text from it
+                      const text = (node?.children ?? [])
+                        .map((c: any) => c.value ?? '')
+                        .join('')
                       const isHighlighted =
                         highlightedClause &&
                         text.toLowerCase().includes(highlightedClause.toLowerCase())
@@ -704,33 +774,49 @@ function markdownToPlainText(md: string): string {
 function PlainEnglishItem({
   item,
   onHover,
+  defaultOpen = false,
 }: {
   item: ClauseExplanation
   onHover: (clause: string | null) => void
+  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   return (
     <div
       onMouseEnter={() => onHover(item.clause)}
       onMouseLeave={() => onHover(null)}
+      className={open ? 'bg-white' : ''}
     >
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full px-5 py-3 flex items-center justify-between text-left hover:bg-[#F8F8F8] transition-colors"
+        className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-[#F8F8F8] transition-colors"
       >
-        <span className="text-[13px] font-bold text-[#0C0C0C] truncate pr-4">{item.clause}</span>
-        <span className={`text-[11px] font-black flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}>
-          →
+        <span className="text-[12px] font-black text-[#0C0C0C] uppercase tracking-wide pr-4">
+          {item.clause}
+        </span>
+        <span className="text-[10px] flex-shrink-0 text-[#ADADAD]">
+          {open ? '▼' : '▶'}
         </span>
       </button>
+
       {open && (
-        <div className="px-5 pb-4 bg-[#FAFAFA]">
-          <p className="text-[13px] text-[#1C1C1C] leading-relaxed mb-3">{item.explanation}</p>
-          <div className="border-l-4 border-l-amber-400 bg-amber-50 px-3 py-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 block mb-1">
-              If breached
-            </span>
-            <p className="text-[12px] text-amber-800 leading-relaxed">{item.breach}</p>
+        <div className="px-5 pb-5">
+          {/* Explanation */}
+          <div className="border-l-2 border-[#0C0C0C] pl-4 mb-4">
+            <p className="text-[13px] text-[#1C1C1C] leading-relaxed">
+              &ldquo;{item.explanation}&rdquo;
+            </p>
+          </div>
+
+          {/* If breached */}
+          <div className="bg-amber-50 border border-amber-200 px-4 py-3 flex gap-3">
+            <span className="text-[16px] flex-shrink-0 mt-0.5">⚠</span>
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block mb-1">
+                If breached
+              </span>
+              <p className="text-[12px] text-amber-900 leading-relaxed">{item.breach}</p>
+            </div>
           </div>
         </div>
       )}
