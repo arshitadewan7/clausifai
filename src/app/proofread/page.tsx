@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, DragEvent } from "react";
+import { useState, useRef, useEffect, DragEvent } from "react";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -78,18 +78,166 @@ async function extractTextFromFile(file: File): Promise<string> {
     ).toString();
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let text = "";
+    let fullText = "";
+
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      text += content.items
-        .filter((item): item is TextItem => "str" in item)
-        .map((item) => item.str)
-        .join(" ") + "\n";
+      const items = content.items.filter((item): item is TextItem => "str" in item);
+
+      if (items.length === 0) continue;
+
+      // Group items by their Y position (same line = within 2 units of each other)
+      const lines: { y: number; texts: string[] }[] = [];
+      for (const item of items) {
+        const y = Math.round(item.transform[5]);
+        const last = lines[lines.length - 1];
+        if (last && Math.abs(last.y - y) < 3) {
+          last.texts.push(item.str);
+        } else {
+          lines.push({ y, texts: [item.str] });
+        }
+      }
+
+      // Sort lines top-to-bottom (PDF y coords are bottom-up)
+      lines.sort((a, b) => b.y - a.y);
+
+      // Join each line, detect blank lines between groups
+      let prevY: number | null = null;
+      for (const line of lines) {
+        const lineText = line.texts.join(" ").trim();
+        if (!lineText) continue;
+
+        // If gap between lines is large, insert a blank line
+        if (prevY !== null && prevY - line.y > 20) {
+          fullText += "\n";
+        }
+        fullText += lineText + "\n";
+        prevY = line.y;
+      }
+      fullText += "\n"; // page break
     }
-    return text;
+    return fullText;
   }
   throw new Error("Unsupported file type.");
+}
+
+// ── Smart contract formatter ──────────────────────────────────────────────────
+// Detects structure and normalises text into readable paragraphs
+
+type FormattedBlock =
+  | { kind: "heading";   text: string }
+  | { kind: "subheading"; text: string }
+  | { kind: "clause";    text: string }
+  | { kind: "paragraph"; text: string }
+  | { kind: "blank" };
+
+function formatContractText(raw: string): FormattedBlock[] {
+  // Normalise line endings, collapse excessive blank lines
+  const lines = raw
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n");
+
+  const blocks: FormattedBlock[] = [];
+  let paragraphBuffer: string[] = [];
+
+  function flushParagraph() {
+    const text = paragraphBuffer.join(" ").replace(/\s+/g, " ").trim();
+    if (text) blocks.push({ kind: "paragraph", text });
+    paragraphBuffer = [];
+  }
+
+  // Heading patterns
+  const isAllCaps       = (s: string) => s.length > 3 && s === s.toUpperCase() && /[A-Z]/.test(s);
+  const isNumberedClause = (s: string) => /^(\d+\.|\d+\.\d+\.?|[a-z]\)|[ivxlIVXL]+\.)/.test(s.trim());
+  const isSectionHeader  = (s: string) => /^(PART|SCHEDULE|CLAUSE|SECTION|ARTICLE)\s+[\dIVX]/i.test(s.trim());
+  const isShortAllCaps   = (s: string) => isAllCaps(s.trim()) && s.trim().split(" ").length <= 8;
+  const isTitleCase      = (s: string) => {
+    const words = s.trim().split(" ");
+    return words.length >= 2 && words.length <= 7 &&
+      words.every((w) => !w || w[0] === w[0].toUpperCase()) &&
+      s.trim().length < 60;
+  };
+
+  let consecutiveBlanks = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      consecutiveBlanks++;
+      if (consecutiveBlanks === 1) {
+        flushParagraph();
+        blocks.push({ kind: "blank" });
+      }
+      continue;
+    }
+    consecutiveBlanks = 0;
+
+    // Detect heading types
+    if (isSectionHeader(trimmed)) {
+      flushParagraph();
+      blocks.push({ kind: "heading", text: trimmed });
+      continue;
+    }
+
+    if (isShortAllCaps(trimmed) && trimmed.length < 80) {
+      flushParagraph();
+      // Distinguish top-level heading vs subheading by length
+      if (trimmed.split(" ").length <= 4) {
+        blocks.push({ kind: "heading", text: trimmed });
+      } else {
+        blocks.push({ kind: "subheading", text: trimmed });
+      }
+      continue;
+    }
+
+    if (isNumberedClause(trimmed)) {
+      flushParagraph();
+      // Check if it's a short clause label vs a full clause with content
+      const colonIdx = trimmed.indexOf(":");
+      if (colonIdx !== -1 && colonIdx < 40 && trimmed.length > colonIdx + 2) {
+        blocks.push({ kind: "clause", text: trimmed });
+      } else if (trimmed.length < 80 && !trimmed.endsWith(".")) {
+        blocks.push({ kind: "subheading", text: trimmed });
+      } else {
+        blocks.push({ kind: "clause", text: trimmed });
+      }
+      continue;
+    }
+
+    if (isTitleCase(trimmed) && trimmed.length < 60 && !trimmed.endsWith(",")) {
+      // Likely a section title — only treat as heading if previous line was blank or heading
+      const prev = blocks[blocks.length - 1];
+      if (!prev || prev.kind === "blank" || prev.kind === "heading" || prev.kind === "subheading") {
+        flushParagraph();
+        blocks.push({ kind: "subheading", text: trimmed });
+        continue;
+      }
+    }
+
+    // Regular text — accumulate into paragraph
+    // Split on sentence boundaries to avoid massive run-on paragraphs
+    const sentences = trimmed.split(/(?<=[.!?])\s+(?=[A-Z])/);
+    if (sentences.length > 1) {
+      flushParagraph();
+      for (const sentence of sentences) {
+        const s = sentence.trim();
+        if (s) blocks.push({ kind: "paragraph", text: s });
+      }
+    } else {
+      paragraphBuffer.push(trimmed);
+    }
+  }
+
+  flushParagraph();
+
+  // Remove trailing blanks
+  while (blocks.length && blocks[blocks.length - 1].kind === "blank") blocks.pop();
+
+  return blocks;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -106,14 +254,11 @@ type Segment =
 
 function findSpanInText(text: string, span: string): { start: number; end: number } | null {
   if (!span || !span.trim()) return null;
-
-  // 1. Case-insensitive exact match
   const lowerText = text.toLowerCase();
   const lowerSpan = span.toLowerCase().trim();
   const idx = lowerText.indexOf(lowerSpan);
   if (idx !== -1) return { start: idx, end: idx + lowerSpan.length };
 
-  // 2. Whitespace-collapsed match
   const collapsedToOrig: number[] = [];
   let collapsed = "";
   let prevWasSpace = false;
@@ -129,7 +274,6 @@ function findSpanInText(text: string, span: string): { start: number; end: numbe
       prevWasSpace = false;
     }
   }
-
   const collapsedSpan = lowerSpan.replace(/\s+/g, " ").trim();
   const collapsedIdx = collapsed.indexOf(collapsedSpan);
   if (collapsedIdx === -1) return null;
@@ -170,12 +314,80 @@ function buildSegments(text: string, issues: Issue[], dismissed: Set<number>): S
   return segments;
 }
 
-// Apply accepted fixes to contract text — replaces span with suggestion text
+// Render segments within a block of text — handles highlights + search
+function renderSegmentsInText(
+  blockText: string,
+  allSegments: Segment[],
+  blockStart: number,
+  blockEnd: number,
+  searchQuery: string,
+  searchIndex: number,
+  globalMatchCountRef: { value: number },
+  activeIssue: Issue | null,
+  setActiveIssue: (i: Issue | null) => void,
+  highlightRefs: React.MutableRefObject<Record<number, HTMLSpanElement | null>>
+): React.ReactNode[] {
+  // Extract the relevant segments for this block
+  const blockSegments: Segment[] = [];
+  let pos = blockStart;
+
+  for (const seg of allSegments) {
+    // Find where this segment falls within our block
+    const segStart = blockStart + blockText.indexOf(seg.text, pos - blockStart);
+    if (segStart < blockStart || segStart >= blockEnd) continue;
+
+    if (seg.type === "highlight") {
+      const relStart = segStart - blockStart;
+      const relEnd = relStart + seg.text.length;
+      if (relStart > pos - blockStart) {
+        blockSegments.push({ type: "text", text: blockText.slice(pos - blockStart, relStart) });
+      }
+      blockSegments.push(seg);
+      pos = blockStart + relEnd;
+    }
+  }
+  if (pos - blockStart < blockText.length) {
+    blockSegments.push({ type: "text", text: blockText.slice(pos - blockStart) });
+  }
+
+  if (blockSegments.length === 0) blockSegments.push({ type: "text", text: blockText });
+
+  return blockSegments.map((seg, i) => {
+    if (seg.type === "text") {
+      if (!searchQuery.trim()) return <span key={i}>{seg.text}</span>;
+      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const parts = seg.text.split(new RegExp(`(${escaped})`, "gi"));
+      return (
+        <span key={i}>
+          {parts.map((part, j) => {
+            if (part.toLowerCase() !== searchQuery.toLowerCase()) return <span key={j}>{part}</span>;
+            const thisIndex = globalMatchCountRef.value++;
+            const isActive = thisIndex === searchIndex;
+            return (
+              <mark key={j}
+                ref={(el) => { if (isActive && el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                style={{ background: isActive ? "#FDE68A" : "#FEF08A", color: "#111", padding: 0, outline: isActive ? "2px solid #D0021B" : "none" }}
+              >{part}</mark>
+            );
+          })}
+        </span>
+      );
+    }
+    const s = ISSUE_STYLES[seg.issue.type];
+    const isActive = activeIssue?.id === seg.issue.id;
+    return (
+      <span key={i}
+        ref={(el) => { highlightRefs.current[seg.issue.id] = el; }}
+        onClick={(e) => { e.stopPropagation(); setActiveIssue(isActive ? null : seg.issue); }}
+        style={{ background: isActive ? s.bg.replace("0.6", "1").replace("0.7", "1") : s.bg, borderBottom: `2px solid ${s.underline}`, cursor: "pointer", padding: "1px 0" }}
+      >{seg.text}</span>
+    );
+  });
+}
+
 function applyFixes(text: string, acceptedFixes: Map<number, AcceptedFix>): string {
   let result = text;
-  // Apply in reverse order of position to preserve indices
   const fixes = Array.from(acceptedFixes.values());
-  // Sort by position in text (last first) so earlier positions aren't shifted
   const positioned = fixes
     .map((fix) => {
       const match = findSpanInText(result, fix.span);
@@ -185,7 +397,6 @@ function applyFixes(text: string, acceptedFixes: Map<number, AcceptedFix>): stri
     .sort((a, b) => b!.start - a!.start) as (AcceptedFix & { start: number; end: number })[];
 
   for (const fix of positioned) {
-    // Extract just the replacement text — strip "Replace with:", "Add:", "Remove:" prefixes
     const suggestion = fix.suggestion
       .replace(/^(Replace with:|Add:|Remove:)\s*/i, "")
       .trim();
@@ -211,24 +422,37 @@ export default function ProofreadPage() {
 
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   const [filter, setFilter] = useState("all");
-  // dismissed = issues hidden from view (both accepted and dismissed)
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
-  // acceptedFixes = fixes the user wants to apply to the contract
   const [acceptedFixes, setAcceptedFixes] = useState<Map<number, AcceptedFix>>(new Map());
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
 
-  // Export modal state
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportTitle, setExportTitle] = useState("");
   const [exportSaving, setExportSaving] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState<{ contractId: string; versionNumber: number } | null>(null);
 
+  const [preloadedLabel, setPreloadedLabel] = useState<string | null>(null);
+  const [sourceContractId, setSourceContractId] = useState<string | null>(null);
+
   const highlightRefs = useRef<Record<number, HTMLSpanElement | null>>({});
 
-  // ── File handling ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    const savedText       = sessionStorage.getItem("clausifai_proofread_text");
+    const savedLabel      = sessionStorage.getItem("clausifai_proofread_label");
+    const savedContractId = sessionStorage.getItem("clausifai_proofread_contractId");
+    if (savedText) {
+      setContractText(savedText);
+      setMode("paste");
+      if (savedLabel)      setPreloadedLabel(savedLabel);
+      if (savedContractId) setSourceContractId(savedContractId);
+      sessionStorage.removeItem("clausifai_proofread_text");
+      sessionStorage.removeItem("clausifai_proofread_label");
+      sessionStorage.removeItem("clausifai_proofread_contractId");
+    }
+  }, []);
 
   async function handleFile(file: File) {
     const ext = file.name.split(".").pop()?.toLowerCase();
@@ -243,6 +467,8 @@ export default function ProofreadPage() {
       const text = await extractTextFromFile(file);
       if (!text.trim()) throw new Error("Could not extract text from this file.");
       setContractText(text);
+      setPreloadedLabel(null);
+      setSourceContractId(null);
     } catch (err: unknown) {
       setExtractError(err instanceof Error ? err.message : "Failed to read file.");
       setUploadedFile(null);
@@ -267,10 +493,10 @@ export default function ProofreadPage() {
     setUploadedFile(null);
     setContractText("");
     setExtractError(null);
+    setPreloadedLabel(null);
+    setSourceContractId(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
-
-  // ── API call ──────────────────────────────────────────────────────────────
 
   async function handleProofread() {
     if (!contractText.trim()) return;
@@ -288,7 +514,10 @@ export default function ProofreadPage() {
       const res = await fetch("/api/contracts/proofread", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contractText }),
+        body: JSON.stringify({
+          contractText,
+          sourceContractId: sourceContractId || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error ?? "Something went wrong.");
@@ -313,30 +542,20 @@ export default function ProofreadPage() {
     }, 50);
   }
 
-  // Accept: track the fix for applying later + hide from view
   function acceptIssue(issue: Issue) {
     setAcceptedFixes((prev) => {
       const next = new Map(prev);
-      next.set(issue.id, {
-        span: issue.span,
-        suggestion: issue.suggestion,
-        type: issue.type,
-        severity: issue.severity,
-        title: issue.title,
-      });
+      next.set(issue.id, { span: issue.span, suggestion: issue.suggestion, type: issue.type, severity: issue.severity, title: issue.title });
       return next;
     });
     setDismissed((d) => new Set([...d, issue.id]));
     setActiveIssue(null);
   }
 
-  // Dismiss: just hide from view, don't apply fix
   function dismissIssue(issue: Issue) {
     setDismissed((d) => new Set([...d, issue.id]));
     setActiveIssue(null);
   }
-
-  // ── Export ────────────────────────────────────────────────────────────────
 
   async function handleExport() {
     setExportSaving(true);
@@ -344,16 +563,16 @@ export default function ProofreadPage() {
     try {
       const fixedText = applyFixes(contractText, acceptedFixes);
       const changelog = Array.from(acceptedFixes.values());
-
       const res = await fetch("/api/contracts/versions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contractText: fixedText,
-          originalText: contractText,
-          title: exportTitle.trim() || result?.contractType || "Uploaded contract",
-          source: "proofread",
-          fixChangelog: changelog,
+          contractText:  fixedText,
+          originalText:  contractText,
+          title:         exportTitle.trim() || result?.contractType || "Uploaded contract",
+          source:        "proofread",
+          fixChangelog:  changelog,
+          contractId:    sourceContractId || undefined,
         }),
       });
       const data = await res.json();
@@ -384,7 +603,7 @@ export default function ProofreadPage() {
       }
     : { all: 0, grammar: 0, legal: 0, missing: 0, risky: 0 };
 
-  const segments = result ? buildSegments(contractText, visibleIssues, dismissed) : [];
+  const segments  = result ? buildSegments(contractText, visibleIssues, dismissed) : [];
   const highCount = visibleIssues.filter((i) => i.severity === "high").length;
   const liveScore = result ? Math.min(100, result.healthScore + dismissed.size * 5) : 0;
 
@@ -395,6 +614,120 @@ export default function ProofreadPage() {
         const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         return acc + (seg.text.match(new RegExp(escaped, "gi"))?.length ?? 0);
       }, 0);
+
+  // ── Smart formatted contract renderer ────────────────────────────────────
+
+  function renderFormattedContract() {
+    const blocks = formatContractText(contractText);
+    const globalMatchCountRef = { value: 0 };
+
+    // We still need to render highlights — build a flat map of span positions
+    // For formatted rendering we render each block's text and annotate with segments
+    return blocks.map((block, bi) => {
+      if (block.kind === "blank") {
+        return <div key={bi} style={{ height: 12 }} />;
+      }
+
+      const text = (block as { kind: string; text: string }).text;
+
+      // Find segments that overlap with this text
+      const blockSegments: React.ReactNode[] = [];
+      let remaining = text;
+      let offset = 0;
+
+      // Find matching segments for this block's text
+      const matchingSegments = segments.filter((seg) => {
+        const idx = text.toLowerCase().indexOf(seg.text.toLowerCase());
+        return idx !== -1;
+      });
+
+      if (matchingSegments.length === 0) {
+        // No highlights — just render text with search highlights
+        if (!searchQuery.trim()) {
+          blockSegments.push(<span key="t">{text}</span>);
+        } else {
+          const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+          parts.forEach((part, j) => {
+            if (part.toLowerCase() !== searchQuery.toLowerCase()) {
+              blockSegments.push(<span key={j}>{part}</span>);
+            } else {
+              const thisIndex = globalMatchCountRef.value++;
+              const isActive = thisIndex === searchIndex;
+              blockSegments.push(
+                <mark key={j}
+                  ref={(el) => { if (isActive && el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                  style={{ background: isActive ? "#FDE68A" : "#FEF08A", color: "#111", padding: 0, outline: isActive ? "2px solid #D0021B" : "none" }}
+                >{part}</mark>
+              );
+            }
+          });
+        }
+      } else {
+        // Render with highlight spans
+        let cursor = 0;
+        const sorted = [...matchingSegments].sort((a, b) => {
+          return text.toLowerCase().indexOf(a.text.toLowerCase()) - text.toLowerCase().indexOf(b.text.toLowerCase());
+        });
+        for (const seg of sorted) {
+          const idx = text.toLowerCase().indexOf(seg.text.toLowerCase(), cursor);
+          if (idx === -1 || idx < cursor) continue;
+          if (idx > cursor) blockSegments.push(<span key={`t-${cursor}`}>{text.slice(cursor, idx)}</span>);
+          if (seg.type === "highlight") {
+            const s = ISSUE_STYLES[seg.issue.type];
+            const isActive = activeIssue?.id === seg.issue.id;
+            blockSegments.push(
+              <span key={`h-${idx}`}
+                ref={(el) => { highlightRefs.current[seg.issue.id] = el; }}
+                onClick={(e) => { e.stopPropagation(); setActiveIssue(isActive ? null : seg.issue); }}
+                style={{ background: isActive ? s.bg.replace("0.6","1").replace("0.7","1") : s.bg, borderBottom: `2px solid ${s.underline}`, cursor: "pointer", padding: "1px 0" }}
+              >{text.slice(idx, idx + seg.text.length)}</span>
+            );
+            cursor = idx + seg.text.length;
+          }
+        }
+        if (cursor < text.length) blockSegments.push(<span key={`t-end`}>{text.slice(cursor)}</span>);
+      }
+
+      // Render block with appropriate styling
+      if (block.kind === "heading") {
+        return (
+          <div key={bi} style={{ marginTop: 28, marginBottom: 8, paddingBottom: 6, borderBottom: "2px solid #111" }}>
+            <span style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.06em", textTransform: "uppercase", color: "#111" }}>
+              {blockSegments}
+            </span>
+          </div>
+        );
+      }
+
+      if (block.kind === "subheading") {
+        return (
+          <div key={bi} style={{ marginTop: 18, marginBottom: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: "#333", letterSpacing: "0.02em" }}>
+              {blockSegments}
+            </span>
+          </div>
+        );
+      }
+
+      if (block.kind === "clause") {
+        return (
+          <div key={bi} style={{ marginBottom: 10, paddingLeft: 16, borderLeft: "2px solid #eee" }}>
+            <span style={{ fontSize: 12, lineHeight: 1.8, color: "#333", fontFamily: "var(--font-geist-mono, monospace)" }}>
+              {blockSegments}
+            </span>
+          </div>
+        );
+      }
+
+      // paragraph
+      return (
+        <p key={bi} style={{ margin: "0 0 12px", fontSize: 12, lineHeight: 1.85, color: "#333" }}>
+          {blockSegments}
+        </p>
+      );
+    });
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -408,21 +741,22 @@ export default function ProofreadPage() {
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Nav */}
-      <nav style={{
-        borderBottom: "2px solid #111", background: "#f5f5f5",
-        padding: "0 32px", display: "flex", alignItems: "center",
-        justifyContent: "space-between", height: 52,
-        position: "sticky", top: 0, zIndex: 10,
-      }}>
+      <nav style={{ borderBottom: "2px solid #111", background: "#f5f5f5", padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52, position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <span style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.03em", color: "#111" }}>clausifai</span>
           <span style={{ fontSize: 17, fontWeight: 900, color: "#D0021B" }}>.</span>
         </div>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#999" }}>Proofread</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {sourceContractId && (
+            <a href={`/contracts/${sourceContractId}/versions`} style={{ fontSize: 10, fontWeight: 700, color: "#555", textDecoration: "none", letterSpacing: "0.06em" }}>
+              ← Version History
+            </a>
+          )}
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#999" }}>Proofread</span>
+        </div>
       </nav>
 
       {!result ? (
-        // ── INPUT SCREEN ───────────────────────────────────────────────────
         <div style={{ maxWidth: 700, margin: "0 auto", padding: "52px 24px 80px" }}>
           <div style={{ marginBottom: 36 }}>
             <h1 style={{ fontSize: 48, fontWeight: 900, letterSpacing: "-0.04em", color: "#111", margin: "0 0 10px", lineHeight: 1 }}>
@@ -442,9 +776,19 @@ export default function ProofreadPage() {
             ))}
           </div>
 
+          {preloadedLabel && (
+            <div style={{ padding: "10px 14px", background: "#f0fff4", borderLeft: "3px solid #16a34a", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#16a34a" }}>Loaded from version history</span>
+                <div style={{ fontSize: 12, color: "#166534", marginTop: 2 }}>{preloadedLabel}</div>
+              </div>
+              <button onClick={() => { setPreloadedLabel(null); setContractText(""); setSourceContractId(null); }} style={{ background: "none", border: "none", color: "#bbb", cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>✕</button>
+            </div>
+          )}
+
           <div style={{ display: "flex", marginBottom: 0, borderBottom: "2px solid #111" }}>
             {(["paste", "upload"] as InputMode[]).map((m) => (
-              <button key={m} onClick={() => { setMode(m); clearFile(); setError(null); }} style={{
+              <button key={m} onClick={() => { setMode(m); if (m === "upload") clearFile(); setError(null); }} style={{
                 padding: "9px 20px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase",
                 background: mode === m ? "#111" : "transparent", color: mode === m ? "#fff" : "#999",
                 border: "none", cursor: "pointer", fontFamily: "inherit",
@@ -458,7 +802,9 @@ export default function ProofreadPage() {
           {mode === "paste" && (
             <div style={{ background: "#fff", border: "1px solid #ddd", borderTop: "none" }}>
               <div style={{ padding: "9px 14px", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb" }}>Contract Input</span>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb" }}>
+                  {preloadedLabel ? "Contract (from version history)" : "Contract Input"}
+                </span>
                 {contractText.length > 0 && <span style={{ fontSize: 10, color: "#ccc" }}>{contractText.length.toLocaleString()} chars</span>}
               </div>
               <textarea value={contractText} onChange={(e) => setContractText(e.target.value)} placeholder="Paste your contract text here..." rows={10} style={{
@@ -517,7 +863,6 @@ export default function ProofreadPage() {
         </div>
 
       ) : (
-        // ── RESULTS SCREEN ──────────────────────────────────────────────────
         <div style={{ display: "flex", height: "calc(100vh - 52px)" }}>
 
           {/* Left sidebar */}
@@ -533,7 +878,13 @@ export default function ProofreadPage() {
               {highCount > 0 && <div style={{ marginTop: 10, fontSize: 10, fontWeight: 700, color: "#D0021B", letterSpacing: "0.06em" }}>⚠ {highCount} HIGH RISK</div>}
             </div>
 
-            {/* Accepted fixes count */}
+            {preloadedLabel && (
+              <div style={{ padding: "10px 18px", background: "#f0fff4", borderBottom: "1px solid #bbf7d0" }}>
+                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#16a34a", marginBottom: 2 }}>From Version History</div>
+                <div style={{ fontSize: 10, color: "#166534" }}>{preloadedLabel}</div>
+              </div>
+            )}
+
             {acceptedFixes.size > 0 && (
               <div style={{ padding: "12px 18px", background: "#f0fff4", borderBottom: "1px solid #bbf7d0" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "#16a34a" }}>
@@ -566,22 +917,30 @@ export default function ProofreadPage() {
             </div>
 
             <div style={{ marginTop: "auto", padding: "16px 18px", borderTop: "1px solid #eee", display: "flex", flexDirection: "column", gap: 8 }}>
-              {/* Export Fixed Contract button — only shows when fixes have been accepted */}
+              {/* View Version History — always shown when loaded from a contract */}
+              {sourceContractId && (
+                <a
+                  href={`/contracts/${sourceContractId}/versions`}
+                  style={{
+                    display: "block", padding: "9px", textAlign: "center",
+                    fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase",
+                    background: "#f5f5f5", color: "#555", border: "1px solid #ddd",
+                    textDecoration: "none",
+                  }}
+                >
+                  ← Version History
+                </a>
+              )}
               {acceptedFixes.size > 0 && (
                 <button
                   onClick={() => { setShowExportModal(true); setExportError(null); setExportSuccess(null); }}
-                  style={{
-                    width: "100%", padding: "10px",
-                    fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase",
-                    background: "#D0021B", color: "#fff", border: "none",
-                    cursor: "pointer", fontFamily: "inherit",
-                  }}
+                  style={{ width: "100%", padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "#D0021B", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}
                 >
                   Export Fixed Contract →
                 </button>
               )}
               <button
-                onClick={() => { setResult(null); setContractText(""); clearFile(); setError(null); setActiveIssue(null); setFilter("all"); setDismissed(new Set()); setAcceptedFixes(new Map()); setSearchQuery(""); setSearchIndex(0); setExportSuccess(null); }}
+                onClick={() => { setResult(null); setContractText(""); clearFile(); setError(null); setActiveIssue(null); setFilter("all"); setDismissed(new Set()); setAcceptedFixes(new Map()); setSearchQuery(""); setSearchIndex(0); setExportSuccess(null); setPreloadedLabel(null); setSourceContractId(null); }}
                 style={{ width: "100%", padding: "9px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#999", border: "1px solid #ddd", cursor: "pointer", fontFamily: "inherit" }}
               >← New Contract</button>
             </div>
@@ -592,10 +951,16 @@ export default function ProofreadPage() {
             style={{ flex: 1, overflow: "auto", padding: "40px 48px", background: "#f5f5f5", backgroundImage: `linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px)`, backgroundSize: "40px 40px" }}
             onClick={(e) => { if ((e.target as HTMLElement).tagName !== "SPAN") setActiveIssue(null); }}
           >
-            <div style={{ maxWidth: 680, margin: "0 auto 16px", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ maxWidth: 680, margin: "0 auto 16px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb" }}>{result.contractType}</span>
               <span style={{ fontSize: 10, color: "#ddd" }}>·</span>
               <span style={{ fontSize: 10, color: "#bbb" }}>{result.issueCount} issues found</span>
+              {preloadedLabel && (
+                <>
+                  <span style={{ fontSize: 10, color: "#ddd" }}>·</span>
+                  <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 700 }}>{preloadedLabel}</span>
+                </>
+              )}
             </div>
 
             {/* Search bar */}
@@ -615,44 +980,11 @@ export default function ProofreadPage() {
               </div>
             </div>
 
-            {/* Contract document */}
+            {/* Contract document — smart formatted */}
             <div style={{ maxWidth: 680, margin: "0 auto", background: "#fff", border: "1px solid #ddd", borderTop: "3px solid #111", padding: "48px 56px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <div style={{ fontSize: 13, lineHeight: 2, color: "#111", whiteSpace: "pre-wrap", fontFamily: "var(--font-geist-mono, monospace)" }}>
-                {(() => {
-                  let globalMatchCount = 0;
-                  return segments.map((seg, i) => {
-                    if (seg.type === "text") {
-                      if (!searchQuery.trim()) return <span key={i}>{seg.text}</span>;
-                      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                      const parts = seg.text.split(new RegExp(`(${escaped})`, "gi"));
-                      const rendered = parts.map((part, j) => {
-                        if (part.toLowerCase() !== searchQuery.toLowerCase()) return <span key={j}>{part}</span>;
-                        const thisIndex = globalMatchCount++;
-                        const isActive = thisIndex === searchIndex;
-                        return (
-                          <mark key={j}
-                            ref={(el) => { if (isActive && el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                            style={{ background: isActive ? "#FDE68A" : "#FEF08A", color: "#111", padding: 0, outline: isActive ? "2px solid #D0021B" : "none" }}
-                          >{part}</mark>
-                        );
-                      });
-                      return <span key={i}>{rendered}</span>;
-                    }
-                    const s = ISSUE_STYLES[seg.issue.type];
-                    const isActive = activeIssue?.id === seg.issue.id;
-                    return (
-                      <span key={i}
-                        ref={(el) => { highlightRefs.current[seg.issue.id] = el; }}
-                        onClick={(e) => { e.stopPropagation(); setActiveIssue(isActive ? null : seg.issue); }}
-                        style={{ background: isActive ? s.bg.replace("0.6", "1").replace("0.7", "1") : s.bg, borderBottom: `2px solid ${s.underline}`, cursor: "pointer", padding: "1px 0" }}
-                      >{seg.text}</span>
-                    );
-                  });
-                })()}
-              </div>
+              {renderFormattedContract()}
             </div>
 
-            {/* Legend */}
             <div style={{ maxWidth: 680, margin: "16px auto 0", display: "flex", gap: 20, flexWrap: "wrap" }}>
               {(Object.entries(ISSUE_STYLES) as [IssueType, typeof ISSUE_STYLES[IssueType]][]).map(([type, s]) => (
                 <div key={type} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -694,10 +1026,27 @@ export default function ProofreadPage() {
             ) : (
               <div>
                 <div style={{ padding: "14px 16px", borderBottom: "1px solid #eee" }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb" }}>Issues · click to inspect</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb" }}>
+                    {visibleIssues.length === 0 ? "No issues remaining" : "Issues · click to inspect"}
+                  </span>
                 </div>
                 {visibleIssues.length === 0 ? (
-                  <div style={{ padding: "40px 20px", textAlign: "center", color: "#bbb", fontSize: 12 }}>No issues in this category.</div>
+                  <div style={{ padding: "40px 20px", textAlign: "center" }}>
+                    <div style={{ fontSize: 28, marginBottom: 12 }}>✓</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: "#111", marginBottom: 6 }}>
+                      {filter === "all" ? "No issues found" : "No issues in this category"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#bbb", lineHeight: 1.6, marginBottom: 20 }}>
+                      {filter === "all"
+                        ? "This contract looks clean. You can export it or mark it as final in version history."
+                        : "Try switching to a different filter."}
+                    </div>
+                    {sourceContractId && filter === "all" && (
+                      <a href={`/contracts/${sourceContractId}/versions`} style={{ display: "block", padding: "9px", textAlign: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "#111", color: "#fff", textDecoration: "none" }}>
+                        View Version History →
+                      </a>
+                    )}
+                  </div>
                 ) : visibleIssues.map((issue) => (
                   <button key={issue.id} onClick={() => selectIssue(issue)} style={{
                     width: "100%", textAlign: "left", padding: "13px 16px",
@@ -720,21 +1069,21 @@ export default function ProofreadPage() {
         </div>
       )}
 
-      {/* ── Export Modal ──────────────────────────────────────────────────── */}
+      {/* Export Modal */}
       {showExportModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowExportModal(false); }}
         >
           <div style={{ background: "#fff", border: "2px solid #111", width: 480, maxWidth: "90vw", padding: 0 }}>
-
-            {/* Modal header */}
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 13, fontWeight: 900, letterSpacing: "-0.02em", color: "#111" }}>Export Fixed Contract</span>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 900, letterSpacing: "-0.02em", color: "#111" }}>Export Fixed Contract</span>
+                {sourceContractId && <div style={{ fontSize: 10, color: "#16a34a", fontWeight: 700, marginTop: 2 }}>↳ Will be saved as a new version on this contract</div>}
+              </div>
               <button onClick={() => setShowExportModal(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#999" }}>✕</button>
             </div>
 
             {exportSuccess ? (
-              // ── Success state
               <div style={{ padding: "32px 24px", textAlign: "center" }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>✓</div>
                 <div style={{ fontSize: 14, fontWeight: 900, color: "#111", marginBottom: 8 }}>Saved successfully</div>
@@ -742,14 +1091,11 @@ export default function ProofreadPage() {
                 <div style={{ fontSize: 11, color: "#bbb", fontFamily: "var(--font-geist-mono, monospace)", marginBottom: 24 }}>{exportSuccess.contractId}</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => setShowExportModal(false)} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "#111", color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Done</button>
-                  <a href={`/contracts/${exportSuccess.contractId}/versions`} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#111", border: "1px solid #ddd", cursor: "pointer", fontFamily: "inherit", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>View History →</a>
+                  <a href={`/contracts/${exportSuccess.contractId}/versions`} style={{ flex: 1, padding: "10px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#111", border: "1px solid #ddd", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>View History →</a>
                 </div>
               </div>
             ) : (
-              // ── Form state
               <div style={{ padding: "20px 24px" }}>
-
-                {/* Changelog preview */}
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb", marginBottom: 10 }}>
                     {acceptedFixes.size} Fix{acceptedFixes.size !== 1 ? "es" : ""} to Apply
@@ -766,36 +1112,19 @@ export default function ProofreadPage() {
                     ))}
                   </div>
                 </div>
-
-                {/* Contract title input */}
                 <div style={{ marginBottom: 20 }}>
-                  <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb", display: "block", marginBottom: 6 }}>
-                    Contract Title
-                  </label>
-                  <input
-                    type="text"
-                    value={exportTitle}
-                    onChange={(e) => setExportTitle(e.target.value)}
-                    placeholder={result?.contractType || "e.g. Freelance Services Agreement"}
-                    style={{ width: "100%", padding: "9px 12px", fontSize: 12, border: "2px solid #111", background: "#fff", color: "#111", fontFamily: "var(--font-geist-mono, monospace)", outline: "none", boxSizing: "border-box" }}
-                  />
+                  <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#bbb", display: "block", marginBottom: 6 }}>Contract Title</label>
+                  <input type="text" value={exportTitle} onChange={(e) => setExportTitle(e.target.value)} placeholder={result?.contractType || "e.g. Freelance Services Agreement"} style={{ width: "100%", padding: "9px 12px", fontSize: 12, border: "2px solid #111", background: "#fff", color: "#111", fontFamily: "var(--font-geist-mono, monospace)", outline: "none", boxSizing: "border-box" }} />
                 </div>
-
-                {exportError && (
-                  <div style={{ padding: "10px 12px", background: "#fff0f0", borderLeft: "3px solid #D0021B", color: "#D0021B", fontSize: 12, marginBottom: 16 }}>{exportError}</div>
-                )}
-
+                {exportError && <div style={{ padding: "10px 12px", background: "#fff0f0", borderLeft: "3px solid #D0021B", color: "#D0021B", fontSize: 12, marginBottom: 16 }}>{exportError}</div>}
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={handleExport} disabled={exportSaving} style={{
-                    flex: 1, padding: "11px",
-                    fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase",
+                    flex: 1, padding: "11px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase",
                     background: exportSaving ? "#999" : "#D0021B", color: "#fff", border: "none",
                     cursor: exportSaving ? "not-allowed" : "pointer", fontFamily: "inherit",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                   }}>
-                    {exportSaving
-                      ? <><span style={{ width: 10, height: 10, border: "2px solid #fff8", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} />Saving...</>
-                      : "Save to Clausifai →"}
+                    {exportSaving ? <><span style={{ width: 10, height: 10, border: "2px solid #fff8", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} />Saving...</> : "Save to Clausifai →"}
                   </button>
                   <button onClick={() => setShowExportModal(false)} style={{ padding: "11px 16px", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: "#999", border: "1px solid #ddd", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
                 </div>
