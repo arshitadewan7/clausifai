@@ -552,8 +552,8 @@ export default function ContractBuilder() {
               {contract ? intent?.contractType.replace('_', ' ') ?? 'Contract' : 'Contract Preview'}
             </span>
             {contract && (
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 bg-white text-[#D0000A]">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 bg-white/20 text-white/70">
                   AI Generated
                 </span>
                 <button
@@ -562,14 +562,13 @@ export default function ContractBuilder() {
                 >
                   Copy
                 </button>
-                {stage === 'complete' && (
-                  <button
-                    onClick={() => setShowSignModal(true)}
-                    className="text-[10px] font-black uppercase tracking-wider px-3 py-1 bg-white text-[#D0000A] border border-white hover:bg-white/90 transition-colors shadow-[2px_2px_0_#0C0C0C]"
-                  >
-                    Send for Signature →
-                  </button>
-                )}
+                <button
+                  onClick={() => setShowSignModal(true)}
+                  disabled={stage !== 'complete'}
+                  className="text-[11px] font-black uppercase tracking-wider px-4 py-2 bg-white text-[#D0000A] border-2 border-white hover:bg-white/90 transition-colors shadow-[3px_3px_0_#0C0C0C] disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+                >
+                  Send for Signature →
+                </button>
               </div>
             )}
           </div>
