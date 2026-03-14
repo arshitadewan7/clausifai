@@ -859,11 +859,6 @@ export default function ContractBuilder() {
                       </li>
                     ),
                     hr: () => <hr className="border-[#DADADA] my-8" />,
-                    blockquote: ({ children }) => (
-                      <blockquote className="border-l-4 border-[#D0000A] bg-[#FFF5F5] pl-4 py-2 my-4 text-[13px] text-[#656565] italic">
-                        {children}
-                      </blockquote>
-                    ),
                     table: ({ children }) => (
                       <table className="w-full border-collapse text-[13px] mb-6">{children}</table>
                     ),
